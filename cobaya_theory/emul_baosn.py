@@ -24,7 +24,7 @@ the two redshift regimes:
 The getters serve PIECEWISE by query redshift: the SN window integrates
 from H; the recombination window interpolates the D_M artifact; a query
 in the desert between them is a LOUD error naming both covered windows
-(never a silent bridge — the legacy analytic z->1200 extension is not
+(never a silent bridge: the legacy analytic z->1200 extension is not
 ported). Flat-only in V1: an omk among the sampled inputs is a loud
 error (the legacy curvature formula was dimensionally wrong and is
 not reproduced).
@@ -120,7 +120,7 @@ class emul_baosn(Theory):
                   (ROOTDIR-relative unless absolute): one whose stored
                   quantity is "Hubble" (the SN-range H(z)) and one whose
                   quantity is "D_M" (the recombination-window comoving
-                  distance). Order does not matter — each artifact
+                  distance). Order does not matter: each artifact
                   declares itself.
       compile   = optional bool, torch.compile on CUDA (default False).
     """
@@ -485,7 +485,7 @@ class emul_baosn(Theory):
         return chi
 
     def get_Hubble(self, z, units="km/s/Mpc"):
-        """H at the query redshifts (SN window only — H is not emulated
+        """H at the query redshifts (SN window only, H is not emulated
         around recombination; a D_M-window H query is a loud error).
 
         Arguments:

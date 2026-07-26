@@ -6,8 +6,8 @@ variants subclass.
 Each class holds a DataVectorGeometry (composition, not
 inheritance) and adds the chi2 (the masked Mahalanobis distance
 r^T Cinv r per sample) and the training loss on it. CosmolikeChi2 is the
-plain loss (trimming, a focal hardness weight — one that up-weights the
-worst-fit samples — and the sqrt / pseudo-Huber
+plain loss (trimming, a focal hardness weight, one that up-weights the
+worst-fit samples, and the sqrt / pseudo-Huber
 / berhu / berhu_capped transform ladder). RescaledChi2 and ResidualBaseChi2
 are the two analytic-R variants (R divides the net output, versus R moves
 only the baseline). anneal_value is the per-epoch schedule shared by four knobs
@@ -82,7 +82,7 @@ def anneal_value(epoch, opts):
       # rising ramp: ceil to the 0.01 grid so the value climbs in
       # discrete steps; `end` is the ceiling it never rises above.
       # (A floor here would sit below `end` forever and the old
-      # max(end, ...) clamp — built for the falling case — jumped
+      # max(end, ...) clamp, built for the falling case, jumped
       # a rising ramp straight to `end` on the first post-hold
       # epoch, silently skipping the whole ramp.)
       val = min(end, np.ceil(val * 100.0) / 100.0)
@@ -648,7 +648,7 @@ class CosmolikeChi2:
       min=0.0)
     h = (c / (c + focus_scale)).detach()
     # the trim enters as a weight: dropped samples get w = 0, so
-    # both sums below run over the kept prefix only — the trim and
+    # both sums below run over the kept prefix only: the trim and
     # the focus weighting share one numerator and one normalizer.
     w = keep * h ** gamma
     # normalized weighted mean (stable scale as w anneals).

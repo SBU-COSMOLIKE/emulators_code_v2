@@ -10,7 +10,7 @@ from generator_core import (GeneratorCore, capture_native_output,
 #-------------------------------------------------------------------------------
 #-------------------------------------------------------------------------------
 # The script below computes BACKGROUND training dumps for the BAOSN emulators:
-# per sample, one background-only CAMB evaluation (cheap — no perturbations)
+# per sample, one background-only CAMB evaluation (cheap: no perturbations)
 # yields BOTH targets of the two-regime design:
 #   - H(z) on the SN-range grid  (train_args.z_sn),   km/s/Mpc
 #   - the comoving distance D_M(z) on the recombination window
@@ -42,7 +42,7 @@ from generator_core import (GeneratorCore, capture_native_output,
 #      z_sn:  [0.0, 3.0, 600]       # [zmin, zmax, nz] linspace, SN range
 #      z_rec: [1000.0, 1200.0, 40]  # [zmin, zmax, nz], recombination window
 #  plus the shared keys (ord; fiducial/params_covmat_file when --unif 0).
-#  The likelihood block may be the dummy `one` — this script adds the
+#  The likelihood block may be the dummy `one`: this script adds the
 #  background requirements to the cobaya model itself.
 #
 #- The output files are
@@ -55,7 +55,7 @@ from generator_core import (GeneratorCore, capture_native_output,
 #
 #      # Data vectors: TWO 2D files (one row per sample) + their grids,
 #      # written once at the first allocation (the training path reads the
-#      # grid from the FILE — resolved values, never re-declared):
+#      # grid from the FILE, resolved values, never re-declared):
 #      lcdm_dvs_train_background_unifs_h.npy      H(z_sn),  (N, nz)
 #      lcdm_dvs_train_background_unifs_h_z.npy    the z_sn grid, (nz,)
 #      lcdm_dvs_train_background_unifs_dm.npy     D_M(z_rec), (N, nz2)
@@ -125,7 +125,7 @@ class dataset(GeneratorCore):
     # explicit background requirements on the model itself (the training
     # YAML may carry only the dummy `one` likelihood). Hubble in
     # km/s/Mpc; comoving_radial_distance is served in Mpc. Background
-    # products ONLY — no Cl requirement, so CAMB never computes
+    # products ONLY: no Cl requirement, so CAMB never computes
     # perturbations and one evaluation per sample stays cheap. With this
     # background-only requirement set, the hand-rolled
     # check_cache_and_compute(cached=True) component loop the other
@@ -167,8 +167,8 @@ class dataset(GeneratorCore):
   def _dv_load_chk(self):
     """Load both per-quantity stores (RAM-aware, one shared policy).
 
-    This family holds one 2-D store per quantity — H(z) on the SN grid
-    and D_M(z) on the recombination grid — instead of the core's single
+    This family holds one 2-D store per quantity, H(z) on the SN grid
+    and D_M(z) on the recombination grid, instead of the core's single
     array. Each axis sidecar is compared against the YAML's grid before
     anything loads, so a checkpoint written for one pair of redshift
     grids is never continued on another. The load-whole-or-memmap
@@ -304,7 +304,7 @@ class dataset(GeneratorCore):
     """
     Allocate both stores for nrows samples (RAM-aware, one shared
     policy) and write the grid sidecars ({dvsf}_h_z.npy /
-    {dvsf}_dm_z.npy) once — the training path reads the grid from the
+    {dvsf}_dm_z.npy) once: the training path reads the grid from the
     FILE (resolved values, never re-declared in a YAML).
 
     Arguments:
@@ -374,7 +374,7 @@ class dataset(GeneratorCore):
       sample = one parameter row (1D, train_args.ord order).
 
     Returns:
-      {"h": (nz,), "dm": (nz2,)} float32 — H on the z_sn grid in
+      {"h": (nz,), "dm": (nz2,)} float32, H on the z_sn grid in
       km/s/Mpc, and the comoving radial distance on the z_rec grid in
       Mpc (equal to the transverse D_M because the run is flat).
 

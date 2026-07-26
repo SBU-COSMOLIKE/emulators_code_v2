@@ -70,14 +70,14 @@ class CmbDiagonalGeometry:
       polarization, "dimensionless" for the lensing pp), read by the
       cobaya adapter when it assembles the C_ell dict.
     - law / as_name / tau_name: the imposed amplitude law by NAME plus
-      the two parameter columns it reads (empty strings for "none") —
+      the two parameter columns it reads (empty strings for "none"),
       persisted HERE because the artifact records its law; the
       chi2 wrapper in losses/cmb.py executes it.
     - as_ref / tau_ref: the fiducial (A_s_ref, tau_ref) the order-one
       "as_exp2tau_ref" law measures the sampled (A_s, tau) against, so
       the amplitude factor is 1 at the fiducial. Resolved floats
       persisted with the artifact (None for "none"); the geometry only
-      carries them — the loss reads them through make_cmb_chi2.
+      carries them: the loss reads them through make_cmb_chi2.
 
   Build from an analytic fiducial C_ell + the training-mean target at
   training time (from_fiducial) or from saved tensors at inference time
@@ -149,7 +149,7 @@ class CmbDiagonalGeometry:
     # the order-one law's fiducial reference pair: a resolved float when
     # the law carries one, None for the "none" law (no reference). Stored
     # here only so it PERSISTS with the artifact (state / from_state); this
-    # geometry never uses it — the loss's _factor reads it via make_cmb_chi2.
+    # geometry never uses it: the loss's _factor reads it via make_cmb_chi2.
     self.as_ref  = None if as_ref  is None else float(as_ref)
     self.tau_ref = None if tau_ref is None else float(tau_ref)
     self.ell = torch.as_tensor(ell,
@@ -267,11 +267,11 @@ class CmbDiagonalGeometry:
     # passage in families-scalar-cmb.md): the variance is 2/(2l+1) * C_fid_l^2,
     # so the precision is its inverse,
     #   cinv_l = (2l+1) / (2 * C_fid_l^2),
-    # and sigma_l = 1/sqrt(cinv_l) = C_fid_l * sqrt(2/(2l+1)) — the
+    # and sigma_l = 1/sqrt(cinv_l) = C_fid_l * sqrt(2/(2l+1)), the
     # per-l error bar, DECREASING with l as more modes average down.
     # (The real training path takes
-    # sigma from the compute_cmb_covariance.py .npz — WITH the eq-4
-    # noise — through __init__ directly, so this classmethod is the
+    # sigma from the compute_cmb_covariance.py .npz, WITH the eq-4
+    # noise, through __init__ directly, so this classmethod is the
     # noise-free fixture / synthetic-gate form.)
     cinv  = (2.0 * ell_f + 1.0) / (2.0 * cl ** 2)
     sigma = 1.0 / np.sqrt(cinv)
@@ -301,7 +301,7 @@ class CmbDiagonalGeometry:
     This is the artifact READ boundary, so it enforces the amplitude-law
     rules: a persisted retired law is refused with its retrain
     instruction, and an "as_exp2tau_ref" artifact missing either persisted
-    reference is refused (the never-trust-defaults proof — the loss reads
+    reference is refused (the never-trust-defaults proof: the loss reads
     the reference with no code fallback, so a file lacking it must not
     rebuild).
 
@@ -383,14 +383,14 @@ class CmbDiagonalGeometry:
     """Attach the conv/TRF heads' channel/token split.
 
     The correction heads (designs/plain.py ResCNN / ResTRF) read
-    geom.bin_sizes for their channel/token layout — the cosmolike
+    geom.bin_sizes for their channel/token layout: the cosmolike
     geometry gets it from build_shear_angle_map; here it is a pure
     derivation from the geometry's own ell grid: ONE bin covering the
     whole spectrum, coordinate = ell (the conv slides along ell; the
     TRF re-segments via model.trf.n_tokens so attention has windows
     to attend across). There is no permutation and no basis change:
     the whitening is per multipole IN ell order, so the heads' W_fd /
-    W_df maps stay None. Idempotent; no files, no torch build — safe
+    W_df maps stay None. Idempotent; no files, no torch build, safe
     at training (build_geometry) and at rebuild (rebuild_emulator).
     """
     width = int(self.ell.numel())

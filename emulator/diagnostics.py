@@ -10,7 +10,7 @@ family's loss exposes a per-sample chi2, and these consume only params +
 per-sample chi2): coverage_diagnostic asks whether the failing val
 points sit in sparse regions of the training set (kNN = k nearest
 neighbours: each val point's mean distance to its k closest training
-points, correlated against delta-chi2 — data coverage);
+points, correlated against delta-chi2, data coverage);
 local_linear_floor compares the model to a local-linear interpolation
 of the training targets (the data-only floor; plain chi2 only);
 hard_direction_regression fits log10 delta-chi2 against the (log)
@@ -152,7 +152,7 @@ def coverage_diagnostic(model,
   parameter space (Euclidean distance there weights each direction
   by its prior spread, so no single wide param dominates) and
   relate that local sparsity to the per-point delta-chi2. The relation
-  is Spearman's rank correlation — the correlation of the two lists'
+  is Spearman's rank correlation: the correlation of the two lists'
   orderings rather than their values, so the heavy chi2 tail cannot
   dominate it. A positive rank correlation reports an association
   between sparse neighbourhoods and large errors. It does not show
@@ -411,9 +411,9 @@ def hard_direction_regression(model,
   nuisances (photo-z DZ, IA A1, which can be <= 0); standardized
   means mean-subtracted and divided by the spread, so the fitted
   coefficients are comparable. Reports each feature's univariate
-  correlation — its own correlation with the target, robust to
+  correlation, its own correlation with the target, robust to
   collinearity (features carrying overlapping information, which
-  makes joint coefficients unstable) — then the joint OLS
+  makes joint coefficients unstable), then the joint OLS
   coefficients (OLS = ordinary least squares, minimizing the summed
   squared misfit) and joint R^2 (the fraction of the difficulty's
   variance the fit explains: how much is one clean log-linear
@@ -518,12 +518,12 @@ def cmb_residual_diagnostic(model,
   per multipole: fractionally ((pred - truth) / truth; readable for
   tt / ee / pp, spiky where te crosses zero) and in error-bar units
   ((pred - truth) / sigma_ell, the per-multipole error bar; always
-  well-defined — for te read this one). Also finds the worst
+  well-defined, for te read this one). Also finds the worst
   validation cosmology (highest per-sample chi2) for a pred-vs-truth
   overlay, and measures the residual's short-period content, the
   component the roughness term penalizes, computed with the same
   double-boxcar remainder (a boxcar is a flat-window moving average;
-  smoothing twice and subtracting leaves only the fast wiggles) — so
+  smoothing twice and subtracting leaves only the fast wiggles), so
   over-smoothing or ringing is visible at a glance.
 
   Estimator only: the fractional and sigma-unit residual bands, the
@@ -680,7 +680,7 @@ def scalar_output_diagnostic(model,
   (chi2fn.decode = the geometry's destandardization) and returns, per
   emulated output, the truth and prediction columns plus the residual
   in physical AND standardized units, alongside the raw input
-  parameters — everything the scalar pages plot (truth-vs-predicted
+  parameters, everything the scalar pages plot (truth-vs-predicted
   scatter, residual histograms both ways, residual vs each input: the
   bias hunt).
 
@@ -752,7 +752,7 @@ def grid_residual_diagnostic(model,
   (the geometry's decode inverts the target law) and summarizes the
   fractional residual per grid redshift (median + 68/95 bands), finds
   the worst validation cosmology (highest per-sample chi2) for a
-  pred-vs-truth overlay, and — for a "Hubble" artifact — propagates a
+  pred-vs-truth overlay, and (for a "Hubble" artifact) propagates a
   subsample through the REAL distance pipeline
   (emulator/background.py) to band the derived D_A / D_L fractional
   errors: pipeline(predicted H) against pipeline(true H), so the page
@@ -773,7 +773,7 @@ def grid_residual_diagnostic(model,
     device         = device the model is on.
     bs             = forward batch size.
     n_derived      = validation rows propagated through the distance
-                     pipeline for the derived page (a cold path — one
+                     pipeline for the derived page (a cold path, one
                      Simpson integration per row).
 
   Returns:
@@ -878,9 +878,9 @@ def grid2d_residual_diagnostic(model,
                                bs=256):
   """Per-(z, k) residual statistics for a grid2d (matter-power) run.
 
-  Decodes every validation prediction back to LAW space — what the
+  Decodes every validation prediction back to LAW space, what the
   network learns; the geometry's decode un-standardizes but never
-  multiplies a syren base back — and summarizes the residual over the
+  multiplies a syren base back, and summarizes the residual over the
   validation set on the stored (z, k) grid. Under a syren law the
   law-space residual IS the log-ratio of the physical spectra,
 

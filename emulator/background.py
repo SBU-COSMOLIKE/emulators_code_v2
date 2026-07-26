@@ -6,7 +6,7 @@ legacy emulbaosn code (the ancestor implementation whose conventions
 this module preserves verbatim): only H(z) comes from a neural
 network; every distance is known physics computed from it by the
 pipeline below.  This module owns that pipeline once, and both
-consumers read it here — the cobaya adapter (cobaya is the sampling
+consumers read it here: the cobaya adapter (cobaya is the sampling
 framework; the emul_baosn theory class presents this emulator to it)
 and direct scripting on an EmulatorPredictor (the class that wraps a
 trained model for evaluation).  With one owner the integration
@@ -34,8 +34,8 @@ the flux we receive.)
 The pipeline is valid STRICTLY inside the grid window [0, z_max].  The
 legacy analytic extension toward z = 1200 (H_ext = H0*sqrt(om(1+z)^3 +
 omegar(1+z)^4), self-labeled "this is an approximation") is
-deliberately not ported: the recombination window — redshifts near
-1100, where the cosmic microwave background formed — has its own
+deliberately not ported: the recombination window (redshifts near
+1100, where the cosmic microwave background formed) has its own
 trained distance emulator, so no bridging integration through the
 unsampled redshift range between the two windows exists anywhere.
 Curvature support is flat-only: the legacy curved-space branch is
@@ -50,7 +50,7 @@ pure math.
 import numpy as np
 from scipy import interpolate
 
-# the speed of light in km/s — the legacy constant, verbatim, so chi is
+# the speed of light in km/s: the legacy constant, verbatim, so chi is
 # in Mpc when H is in km/s/Mpc.
 C_KMS = 2.99792458e5
 
@@ -59,7 +59,7 @@ def cumulative_simpson(z, y):
   """Cumulative Simpson integral of y over the uniform grid z.
 
   Simpson's rule integrates a sampled function by fitting a parabola
-  through three consecutive samples — two grid intervals — and
+  through three consecutive samples (two grid intervals) and
   integrating that parabola exactly; summing over successive pairs of
   intervals gives the composite rule, which is why the grid must have
   an even number of intervals, meaning an odd number of points.  This
@@ -108,7 +108,7 @@ def cumulative_simpson(z, y):
   C[0] = 0.0
   C[2::2] = cum_even[1:]               # at z[2], z[4], …
   # odd node i: the ONE-interval integral integral_{z[i-1]}^{z[i]} of the
-  # quadratic through the three samples (y[i-1], y[i], y[i+1]) — exact on
+  # quadratic through the three samples (y[i-1], y[i], y[i+1]), exact on
   # quadratics. h/12 * (5*y[i-1] + 8*y[i] - y[i+1]). NOT dz/6 * (1,4,1),
   # which is HALF the two-interval Simpson total (integral over the whole
   # [z[i-1], z[i+1]] chunk) and a first-order h^2/2 error; see
@@ -123,8 +123,8 @@ def comoving_distance_grid(z_grid, h_grid):
 
   In a flat universe the comoving distance is the integral
   chi(z) = integral_0^z c/H(z') dz'.  Following the legacy convention
-  verbatim, c/H is first cubic-interpolated — approximated by piecewise
-  third-degree polynomials through the samples — onto the finer grid
+  verbatim, c/H is first cubic-interpolated (approximated by piecewise
+  third-degree polynomials through the samples) onto the finer grid
   z_step = linspace(0, z_max, 2*NZ + 1).  That interpolation step
   exists for three reasons: the stored grid is not required to be
   uniform while Simpson's rule assumes one step size, linspace
@@ -172,7 +172,7 @@ def distance_interpolators(z_grid, h_grid):
   SN is supernova: this serves the low-redshift window where the
   supernova and baryon-acoustic-oscillation data live.  One call per
   sampled cosmology: it integrates chi (comoving_distance_grid) and
-  wraps H and the three flat distances in cubic interpolators —
+  wraps H and the three flat distances in cubic interpolators,
   functions built from the grid samples that return a value at any
   redshift between them.  Every consumer (the cobaya getters, a
   profile script, the diagnostics pages) reads these, so the

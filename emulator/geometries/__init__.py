@@ -11,5 +11,5 @@ Saved artifacts persist geometry classes as full module paths, and
 rebuild_emulator imports exactly the stored string, so every class
 lives at its one canonical path in this folder. An artifact naming a
 path that does not exist fails its rebuild with ModuleNotFoundError
-naming the path — the geo-paths gate pins that loud death.
+naming the path: the geo-paths gate pins that loud death.
 """

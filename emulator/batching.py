@@ -29,7 +29,7 @@ The regime ladder, per source:
        │         load_dv(rows) is a pure index, no per-epoch I/O.
        ├─ no, dv is a RAM ndarray -> regime 2 (RAM stream):
        │         chunks RAM -> GPU each epoch, encoded on the
-       │         fly (pinned host memory on CUDA — page-locked
+       │         fly (pinned host memory on CUDA, page-locked
        │         RAM the GPU can copy from directly).
        └─ no, dv is a disk memmap -> regime 3 (disk stream):
                  the same chunk path, reads hit the disk.
@@ -38,7 +38,7 @@ The regime ladder, per source:
      parameter count; enc_dvs = bytes of the encoded target set;
      resident = model + Cinv + encoded params, bytes pinned on
      the GPU for the whole run, where Cinv is the inverse of the
-     data covariance matrix — the chi2's weight matrix; tgt_dim =
+     data covariance matrix, the chi2's weight matrix; tgt_dim =
      target width, out_dim unless the loss stages a wider one via
      target_dim; budget = the VRAM bytes this source may plan
      against; 0.8 = the planning headroom factor (plan against

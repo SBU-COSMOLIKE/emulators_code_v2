@@ -92,7 +92,7 @@ class Affine(nn.Module):
 class FeatureAffine(nn.Module):
     """
     A learnable per-feature scale and shift: out = x * gain + bias,
-    gain and bias length-`size` vectors (one pair per feature) — the
+    gain and bias length-`size` vectors (one pair per feature), the
     per-feature sibling of Affine.
 
     A "feature" is one coordinate of the width-wide hidden vector
@@ -196,7 +196,7 @@ def make_norm(name):
     name = one of:
              "affine"      -> affine_norm, the paper's per-layer
                               g x + b (one scalar pair per layer); the
-                              default — the same function object as the
+                              default: the same function object as the
                               ResBlock default norm.
              "per_feature" -> FeatureAffine, a length-size gain / bias
                               (one pair per feature; the tanh

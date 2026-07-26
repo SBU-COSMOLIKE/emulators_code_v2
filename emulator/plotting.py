@@ -6,7 +6,7 @@ the training history, plot_diagnostics the multipage diagnostics PDF
 (history, coverage, the local-linear floor, the hard-direction
 regression, a chi2-colored lcdm triangle, and the ln-parameter PCA
 plane colored by chi2 and by training sparsity; a CMB / scalar /
-background run appends its family's pages — per-multipole residual
+background run appends its family's pages, per-multipole residual
 bands and short-period wiggle content for CMB, per-output residual
 pages for scalars, per-redshift bands plus the derived-distance page
 for the background). A triangle plot is the grid showing every
@@ -763,7 +763,7 @@ def _shade_omh2_marginal(g, plot_names, cuts):
   Band out the omega_m h^2 window on its 1-D diagonal marginal.
 
   The marginal is the 1-D distribution of that parameter alone, all
-  others summed over — the diagonal panel of the triangle plot.
+  others summed over: the diagonal panel of the triangle plot.
   omegamh2 is a derived triangle axis, so its cut is a plain interval
   on the omh2 marginal: axvspan the excluded low / high ends in the
   same grey, drawing nothing when the window is off, the omh2 axis is
@@ -1088,12 +1088,12 @@ def _cmb_pages(cmb):
 
   Page A (2x2): the per-multipole residual bands, fractionally (top
   left; readable for tt/ee/pp, spiky where te crosses zero) and in
-  cosmic-variance error-bar units (top right; always well-defined — for
+  cosmic-variance error-bar units (top right; always well-defined, for
   te read this one), plus the worst-cosmology overlay: predicted vs
   true C_ell (bottom left) and its per-multipole physical residual
   (predicted minus true C_ell, bottom right).
 
-  Page B: the roughness companion — the median absolute short-period
+  Page B: the roughness companion, the median absolute short-period
   remainder of the whitened residual vs multipole (the wiggle spectrum
   the roughness term penalizes), with the acoustic band (~200-300 in
   period) noted so over-smoothing or ringing reads at a glance.
@@ -1182,7 +1182,7 @@ def _scalar_pages(sc):
   Page A: per-output truth-vs-predicted scatter with the identity line.
   Page B: per-output residual histograms, physical units (left) and
   standardized units (right) side by side.
-  Page C: residual (standardized) vs each input parameter — the bias
+  Page C: residual (standardized) vs each input parameter, the bias
   hunt: any trend says the emulator is systematically wrong along that
   direction, not just noisy.
 
@@ -1259,7 +1259,7 @@ def _grid_pages(gd):
   Page A (1x2 or 2x2): the per-redshift fractional-residual bands for
   the emulated background function, plus the worst-cosmology overlay
   (pred vs truth and its fractional residual).
-  Page B (only for a "Hubble" artifact): the DERIVED-distance page —
+  Page B (only for a "Hubble" artifact): the DERIVED-distance page,
   fractional D_A and D_L error bands at interior redshifts, computed
   through the real integration pipeline (emulator/background.py), so
   the page tests the path a likelihood actually consumes.
@@ -1330,8 +1330,8 @@ def _grid2d_pages(g2):
   Page A (1x2): the median |residual| over the validation set as a
   (z, k) surface, beside the worst validation cosmology's |residual|
   surface (same color scale, so "how bad is the worst" reads at a
-  glance). Under a syren law the residual is ln(P_pred / P_truth) —
-  the base cancels — so the color is the fractional error of the
+  glance). Under a syren law the residual is ln(P_pred / P_truth):
+  the base cancels, so the color is the fractional error of the
   served spectrum; under law "none" it is the plain fractional
   residual.
   Page B (stacked): per-k residual bands (68/95 + median) at the

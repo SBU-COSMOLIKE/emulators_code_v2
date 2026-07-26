@@ -5,9 +5,9 @@ gravitational lensing from large-scale structure.  Its data vector is
 built from the two correlation functions xi+ and xi-, measured between
 tomographic bins (redshift slices of the galaxy sample) as functions
 of the angular separation theta.  This module evaluates a fast
-closed-form reference for that signal — the Eisenstein-Hu zero-baryon
+closed-form reference for that signal (the Eisenstein-Hu zero-baryon
 transfer function, linear theory, and a single-plane Limber mapping
-from angle to wavenumber — and divides it out, so the network emulates
+from angle to wavenumber) and divides it out, so the network emulates
 a flatter target: R removes the broadband dependence on the primordial
 amplitude As and on the spectrum's shape, leaving the network the
 residual physics the closed form misses.
@@ -46,7 +46,7 @@ def _analytic_R(theta_arcmin,
   T is the Eisenstein-Hu zero-baryon transfer function: the closed-form
   fit for how matter physics filters the shape of the primordial power
   spectrum when baryon features are neglected.  The q map is the
-  single-plane Limber step — it converts an angular separation, at one
+  single-plane Limber step: it converts an angular separation, at one
   effective lens plane set by z_eff and u_star, into the wavenumber
   ratio the transfer function is evaluated at.  As is the primordial
   amplitude and ns the spectral tilt; each cosmology uses its own ns,
@@ -61,7 +61,7 @@ def _analytic_R(theta_arcmin,
   theta_arcmin and z_eff broadcast to the element shape S.
   Broadcasting is the numpy/torch rule that stretches axes of length 1
   to match the other operand, so both can be (n_keep,) for the masked
-  data vector, or (ntheta,1,1) and (1,nt,nt) for the full xi matrix —
+  data vector, or (ntheta,1,1) and (1,nt,nt) for the full xi matrix:
   the two spellings expand to the same grid without copying data.
 
   Arguments:
@@ -240,8 +240,8 @@ def rescale_xi(xi,
   """Rescale a list of xi curves by R in the (theta, xip, xim) layout.
 
   The plotting/visual-check wrapper: it calls _analytic_R with the
-  full-block matrix geometry — every tomographic bin pair at every
-  theta, no mask applied — so a whole xi curve can be flattened for
+  full-block matrix geometry (every tomographic bin pair at every
+  theta, no mask applied) so a whole xi curve can be flattened for
   inspection.  R is strictly positive, so xi- keeps its sign; R = 1
   for a curve equal to cosmo_mid.  The effective redshift of a cross
   pair is min(z_i, z_j), the nearer source plane.

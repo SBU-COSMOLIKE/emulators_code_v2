@@ -1,8 +1,8 @@
 """2D grid geometry: a function on a persisted (z, k) grid.
 
 The MPS output geometry: the emulated quantity is a function of BOTH
-redshift and wavenumber — the linear P(k, z) or the nonlinear boost
-B(k, z) = P_nl/P_lin — stored as one flattened row per cosmology:
+redshift and wavenumber, the linear P(k, z) or the nonlinear boost
+B(k, z) = P_nl/P_lin, stored as one flattened row per cosmology:
 
     row layout (row-major, z outer):   [f(z_0, k_0) ... f(z_0, k_last),
                                         f(z_1, k_0) ... f(z_last, k_last)]
@@ -14,7 +14,7 @@ generator + emul_mps through emulator/syren_base.py; the geometry's
 encode/decode are pure standardize /
 destandardize, torch-only). The law NAME persists here as the artifact
 fact that tells every consumer which base to multiply back; the stored
-k grid is the (possibly downsampled) grid the run actually trained on —
+k grid is the (possibly downsampled) grid the run actually trained on,
 resolved values, never a stride knob to re-apply.
 
 PS: law space = the rows after the registry transform (log(P/P_base)
@@ -29,7 +29,7 @@ import torch
 
 # The 2D target-law registry: persisted by name in the artifact.
 # The syren laws' base functions live in emulator/syren_base.py; "none"
-# learns the raw rows. No extra state keys — the base is recomputed from
+# learns the raw rows. No extra state keys: the base is recomputed from
 # the sampled parameters by the consumer, never stored per-row here.
 TARGET_LAWS_2D = {
   "none":          (),
@@ -138,7 +138,7 @@ class Grid2DGeometry:
       law      = the target-law name (a TARGET_LAWS_2D key).
       z        = (nz,) ascending redshift axis.
       k        = (nk,) ascending wavenumber axis, 1/Mpc (the grid the
-                 run trained on — already downsampled if it was).
+                 run trained on, already downsampled if it was).
       center   = (nz*nk,) per-point training mean IN LAW SPACE.
       scale    = (nz*nk,) per-point training std IN LAW SPACE (1.0 at
                  the pinned points below).
@@ -278,7 +278,7 @@ class Grid2DGeometry:
     const_mask = np.zeros(n_out, dtype=bool)
     if zero.size > 0:
       # a WHOLLY constant surface is a dead dump under any law (a
-      # stale generator writing one cosmology's rows everywhere — the
+      # stale generator writing one cosmology's rows everywhere, the
       # bsn-smoke failure class), never a physical region.
       if zero.size == n_out:
         raise ValueError(
@@ -287,12 +287,12 @@ class Grid2DGeometry:
           "writing one cosmology everywhere); check the generator, "
           "this is never a physical surface.")
       # the constant pin (LAW-AGNOSTIC): a constant law-space column
-      # that is not the whole surface is PHYSICS, not a generator bug —
+      # that is not the whole surface is PHYSICS, not a generator bug:
       # the boost is 1 below the nonlinear scale for every cosmology,
       # so its low-k columns are constant under ANY law: under a syren
       # law log(B/B_base) = 0 identically (the base is exact there);
       # under law "none" the raw value 1 itself is the constant. PIN
-      # those points — scale 1 (nothing to whiten by), and decode
+      # those points, scale 1 (nothing to whiten by), and decode
       # returns the training constant exactly. The mask persists in
       # the artifact (state), so serving matches training bit for bit.
       # The dead-dump protection is the WHOLE-surface guard above,
@@ -312,7 +312,7 @@ class Grid2DGeometry:
     log(P/P_base) from the generator's base files), so this only
     computes the two per-point moments (population mean/std, ddof 0)
     and hands them to from_stats, which owns the pin / dead-dump rules
-    (the bounded staging streams the same two moments — one code path
+    (the bounded staging streams the same two moments: one code path
     standardizes both).
 
     Arguments:
@@ -382,10 +382,10 @@ class Grid2DGeometry:
     redshifts at like k), the TRF gets one token per z slice
     (attention shares information across redshifts, each slice's
     private MLP specializes along k). model.trf.n_tokens is rejected
-    here — the z slices ARE the tokens. No permutation, no basis
+    here: the z slices ARE the tokens. No permutation, no basis
     change: the whitening is per (z, k) point in grid order, so the
     heads' W_fd / W_df maps stay None. Idempotent; no files, no
-    torch build — safe at training and at rebuild.
+    torch build, safe at training and at rebuild.
     """
     sizes = []
     for _ in range(int(self.z.numel())):
@@ -415,7 +415,7 @@ class Grid2DGeometry:
     the base back through emulator/syren_base.py).
 
     At the pinned points (law-space training columns constant
-    across cosmologies — the boost's low-k region under any law) the
+    across cosmologies: the boost's low-k region under any law) the
     network's output is REPLACED by the training constant: that
     constant IS the physics there (the base under a syren law, the
     raw value itself under law "none"), and letting network noise

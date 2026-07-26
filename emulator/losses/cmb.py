@@ -94,7 +94,7 @@ class ResidualRoughness:
   none at P >= ~4 w. With the default period_cut 50 that separates the
   penalized band (P <~ 50) from the acoustic band (P ~ 200-300, where a
   shifted peak or a lensing-smoothing misfit lives) by a factor
-  >= 4 — those misfits belong to the plain chi2, and this term barely
+  >= 4, those misfits belong to the plain chi2, and this term barely
   sees them. Acting on the RESIDUAL (never the prediction) makes lensing
   neutrality structural: the penalty is identically zero when the
   prediction equals the lensed truth, however smooth its peaks.
@@ -261,7 +261,7 @@ class CmbDiagonalChi2(CosmolikeChi2):
     multipoles. full is accepted so the signature matches
     CosmolikeChi2.chi2 but has no effect: a diagonal geometry has no
     masked entries to scatter through. The roughness term never enters
-    here — chi2 is the evaluation metric; the penalty is a TRAINING
+    here, chi2 is the evaluation metric; the penalty is a TRAINING
     objective addition, applied in loss only.
 
     Arguments:
@@ -308,7 +308,7 @@ class CmbDiagonalChi2(CosmolikeChi2):
     With no roughness term this delegates to CosmolikeChi2.loss unchanged
     (byte-identical, the off-identity rule). With one, the composition
     is c_total = c_chi2 + lam * c_rough per SAMPLE, before
-    the shared reduction — so trim / focus / berhu / the mode transform
+    the shared reduction, so trim / focus / berhu / the mode transform
     all act on one number per sample and compose with the penalty
     exactly as they compose with the plain chi2 (one reduction path, no
     second ladder). Both pred and target hold any imposed amplitude

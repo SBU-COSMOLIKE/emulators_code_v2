@@ -333,7 +333,7 @@ class PCERatioChi2(CosmolikeChi2):
 class PCEResidualDiagChi2(CmbDiagonalChi2):
   """
   Residual NPCE under the diagonal metric: the family-wide form
-  for every elementwise-whitened geometry —
+  for every elementwise-whitened geometry,
   CmbDiagonalGeometry (law "none"), GridGeometry, Grid2DGeometry,
   ScalarGeometry. The refiner model learns the residual of the
   whitened target after a frozen PCE base, exactly as

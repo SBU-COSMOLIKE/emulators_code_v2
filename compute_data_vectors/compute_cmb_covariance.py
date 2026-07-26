@@ -16,7 +16,7 @@ it must be COMPUTED. The model is eqs 1-7 of Motloch & Hu
   N = N^(phi) + N^(E)                                            (eq 5)
   N^(phi)^{XY,WZ}_{ll'} = sum_L dC^XY_l/dC^phiphi_L *
                           Cov^phiphi_LL * dC^WZ_l'/dC^phiphi_L   (eq 6)
-  N^(E)  (unlensed-EE sample variance into BB; eq 7)  — V1 records it
+  N^(E)  (unlensed-EE sample variance into BB; eq 7), V1 records it
          and skips it: no BB emulator is planned, and eq 7 feeds only
          Cov^{XY,BB}.
 
@@ -44,7 +44,7 @@ The OUTPUT is the interface the training stack consumes (specified
 in ai/notes/families-scalar-cmb.md): one .npz holding
 
   ell                    (n_ell,)  l = 2..lmax
-  sigma_tt/te/ee/pp      (n_ell,)  sqrt of the Gaussian diagonal —
+  sigma_tt/te/ee/pp      (n_ell,)  sqrt of the Gaussian diagonal,
                                    what CmbDiagonalGeometry uses as its
                                    whitening scale (ALWAYS present)
   gauss_tt_te, gauss_tt_ee, gauss_te_ee
@@ -70,13 +70,13 @@ in ai/notes/families-scalar-cmb.md): one .npz holding
                                    consume.
   provenance             json string: the fiducial parameters, noise,
                          beam, fsky, the NG flag, the stencil step
-                         study, and the exact camb extra_args —
+                         study, and the exact camb extra_args,
                          resolved values persisted, so the consumer
                          re-derives nothing.
 
 PS: C_ell here is the raw power spectrum (muK^2 for T/E;
 dimensionless C^phiphi for the lensing potential), never the
-l(l+1)/2pi-scaled form — CAMB is asked for raw Cl and the noise
+l(l+1)/2pi-scaled form, CAMB is asked for raw Cl and the noise
 formula is in the same units. "Band" = one multipole L of the lensing
 potential whose amplitude is perturbed to measure dC_l/dC^phiphi_L
 (band width > 1 trades exactness for speed; the width is a knob and
@@ -213,7 +213,7 @@ def gaussian_blocks(ell, cls, noise, fsky):
   (legend: C^XY_exp = C^XY + N^XY per eq 4; every line is eq 3 with
   the right (XY, WZ) index pattern, e.g. tt_te is X=Y=T, W=T, Z=E:
   C^TW C^YZ + C^XZ C^YW = 2 C^TT_exp C^TE_exp. The phiphi noise N0 is
-  a recorded future knob — V1 phiphi is cosmic variance only.)
+  a recorded future knob, V1 phiphi is cosmic variance only.)
 
   Arguments:
     ell   = (n_ell,) multipole grid.
@@ -336,8 +336,8 @@ def validate_lcdm_params(params):
 
   The covariance is only ever computed on a fiducial LCDM cosmology
   (user directive). Three rules: (1) every entry must be a plain
-  number (a FIXED value — no priors, no derived lambdas: this script
-  evaluates one cosmology); (2) only LCDM_ALLOWED names may appear;
+  number (a FIXED value: no priors and no derived lambdas, because this
+  script evaluates one cosmology); (2) only LCDM_ALLOWED names may appear;
   (3) the geometry/dark-energy names, if present, must sit at their
   LCDM values (omk 0, w -1, wa 0).
 
@@ -435,13 +435,13 @@ def lensed_cls_with_clpp(cambdata, clpp, lmax):
   at fixed unlensed CMB, so the Boltzmann solve never reruns: CAMB's
   results object re-lenses with any supplied potential
   (get_lensed_cls_with_spectrum), and cobaya provided that object
-  (provider.get_CAMBdata()) — CAMB stays "within cobaya on high
+  (provider.get_CAMBdata()), CAMB stays "within cobaya on high
   settings" exactly as directed.
 
   Arguments:
     cambdata = the CAMBdata results object (fiducial, high accuracy).
     clpp     = the [L(L+1)]^2/2pi-convention lensing array over
-               L = 0..Params.max_l — CAMB refuses anything shorter.
+               L = 0..Params.max_l, CAMB refuses anything shorter.
                The caller takes it whole from get_lens_potential_cls
                and perturbs one band.
     lmax     = top multipole of the returned lensed spectra.
@@ -530,7 +530,7 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
   n_have = min(len(cls["pp"]), lens_lmax + 1)
   pp_raw[:n_have] = cls["pp"][:n_have]
   # get_lens_potential_cls(raw_cl=False) column 0 is
-  # [L(L+1)]^2 C^phiphi_L / 2pi over L = 0..Params.max_l — the exact
+  # [L(L+1)]^2 C^phiphi_L / 2pi over L = 0..Params.max_l: the exact
   # array get_lensed_cls_with_spectrum demands ("clpp must go to at
   # least Params.max_l"; a shorter array raises). Building it by hand
   # truncated at lens_lmax
@@ -624,7 +624,7 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
 
   # eq 6 assembly for every spectrum pair: the same-spectrum blocks
   # (the per-spectrum training covariance) AND the cross-spectrum
-  # blocks (the off-pair terms of the paper's full matrix — together
+  # blocks (the off-pair terms of the paper's full matrix, together
   # they tile the joint TT/TE/EE covariance the planned
   # dense-covariance training (notes/families-scalar-cmb.md) and any
   # joint likelihood would consume).
@@ -670,7 +670,7 @@ def main():
 
   The write refuses an existing output (an emulator may be trained
   against it), requires every array finite, and goes through a
-  temporary name plus one atomic rename — see the inline comments at
+  temporary name plus one atomic rename. See the inline comments at
   the write site.
 
   Raises:

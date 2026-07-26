@@ -1,8 +1,8 @@
 """Grid geometry: a background function on a persisted redshift grid.
 
 The BSN output geometry: the emulated quantity is a FUNCTION
-of redshift — H(z) on the SN-range grid, or the comoving distance
-D_M(z) on the recombination window — stored as a vector over a grid
+of redshift, H(z) on the SN-range grid, or the comoving distance
+D_M(z) on the recombination window, stored as a vector over a grid
 that lives IN the saved file itself. The grid is never read from a
 separate file or a code default, so a rebuilt emulator cannot pair
 with the wrong grid. Standardization is the ScalarGeometry math
@@ -18,10 +18,10 @@ at grid width, applied AFTER the target law:
     encoded target (what the network learns)
 
 decode inverts both steps (destandardize, then exp(y) - offset for the
-log_offset law — the legacy emulbaosn convention, its offset persisted
+log_offset law: the legacy emulbaosn convention, its offset persisted
 here). TARGET_LAWS is the small registry (persisted
 by name in the artifact, never a code default). The loss is ScalarChi2
-reused unchanged — it reads only encode / decode / dest_idx off the
+reused unchanged: it reads only encode / decode / dest_idx off the
 geometry, and with the law inside encode/decode the chi2 lives in the
 standardized law space.
 
@@ -42,7 +42,7 @@ from ..validation import _is_finite_real
 # The target-law registry: law name -> the extra state keys it needs
 # (persisted by name in the artifact, resolved values, never a code
 # default). "none" learns the raw quantity; "log_offset" learns
-# log(raw + offset) — the legacy emulbaosn H(z) convention.
+# log(raw + offset): the legacy emulbaosn H(z) convention.
 TARGET_LAWS = {
   "none":       (),
   "log_offset": ("offset",),
@@ -413,7 +413,7 @@ class GridGeometry:
     re-segments via model.trf.n_tokens so attention has windows to
     attend across). No permutation, no basis change: the whitening
     is per grid point IN z order, so the heads' W_fd / W_df maps
-    stay None. Idempotent; no files, no torch build — safe at
+    stay None. Idempotent; no files, no torch build, safe at
     training (build_geometry) and at rebuild (rebuild_emulator).
     """
     width = int(self.z.numel())
@@ -445,7 +445,7 @@ class GridGeometry:
       t = (B, NZ) network output in the standardized law space.
 
     Returns:
-      (B, NZ) the raw quantity (exp(y) - offset under log_offset — the
+      (B, NZ) the raw quantity (exp(y) - offset under log_offset, the
       legacy emulbaosn convention).
     """
     y = t * self.scale + self.center

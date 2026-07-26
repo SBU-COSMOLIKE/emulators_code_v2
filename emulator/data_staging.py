@@ -243,7 +243,7 @@ def stage_source(C, dv, idx, ram_frac=0.7):
   RAM even when the dump does not. Indexing with an array of row
   numbers (numpy's "advanced indexing", C[rows]) always answers with
   a fresh copy rather than a view, so staging materializes BOTH
-  compact copies — the parameter table C[idx] and the target dv[idx],
+  compact copies: the parameter table C[idx] and the target dv[idx],
   each at its own dtype and width. If their combined bytes are below
   ram_frac of the RAM currently free (psutil reports it),
   materialize them and return local coordinates into that copy;
@@ -542,7 +542,7 @@ def read_param_names(covmat_path, comment="#"):
 
   The covmat is the covariance-matrix text file whose first header
   line lists the parameter columns. This reads only that line, strips
-  the leading comment marker, and splits on whitespace — the column
+  the leading comment marker, and splits on whitespace: the column
   order the parameter arrays (and ParamGeometry) use.
 
   Arguments:

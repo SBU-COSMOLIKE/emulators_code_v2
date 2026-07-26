@@ -165,7 +165,7 @@ class DataVectorGeometry:
                    persisted by state() when present so a head
                    artifact rebuilds without the dataset ini).
                    None (the default, and every trunk-only or
-                   older file): the ATTRIBUTE stays unset —
+                   older file): the ATTRIBUTE stays unset,
                    hasattr(geom, "bin_sizes") is the guard the
                    head constructors and BlockDiagonalGeometry
                    check, so a None-valued attribute would
@@ -313,7 +313,7 @@ class DataVectorGeometry:
     reconstructs the geometry with no cosmolike read. cls
     (not the class name) keeps a subclass's type correct. A
     newer file also carries section_sizes / probe (and, on a
-    head-model artifact, bin_sizes / pm_kept — the
+    head-model artifact, bin_sizes / pm_kept, the
     build_shear_angle_map attach, persisted so the conv/TRF
     constructors rebuild without the dataset ini); an older
     one omits them, so __init__ leaves each unset/None (loud
@@ -488,7 +488,7 @@ class DataVectorGeometry:
       st["probe"] = self.probe
     # the heads' bin split, present only after build_shear_angle_map
     # attached it (a needs_bins training run). Persisted so a saved
-    # head artifact rebuilds from the files alone — rebuild_emulator
+    # head artifact rebuilds from the files alone, rebuild_emulator
     # must never need ROOTDIR data files (the dataset ini / n(z) the
     # attach reads). A trunk-only run never has the attributes, so its
     # state() simply omits the keys; a head artifact saved without

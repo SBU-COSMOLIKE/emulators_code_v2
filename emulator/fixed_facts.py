@@ -318,8 +318,8 @@ def build_sidecar(generator,
   interval each one was drawn from. Each section is written one key per
   line, so the file can be checked by eye.
 
-  The values come from the resolved Cobaya model — the model object that
-  exists after Cobaya has filled in every default — never from the YAML file
+  The values come from the resolved Cobaya model (the model object that
+  exists after Cobaya has filled in every default), never from the YAML file
   the user wrote. The YAML says what the user asked for; the model is what
   actually ran. When the YAML leaves a setting unstated, the model holds the
   concrete default value the dataset was really generated under, and that
@@ -438,8 +438,8 @@ def synthetic_sidecar(names, label, family=NOT_APPLICABLE, support=None):
   finds facts that do not match and refuses it, which is the correct answer: a
   test double must never be served to a likelihood.
 
-  What the double says about its SUPPORT — the interval each sampled
-  parameter was drawn from — depends on what the double is for, and the two
+  What the double says about its SUPPORT (the interval each sampled
+  parameter was drawn from) depends on what the double is for, and the two
   answers are both honest:
 
     support=None   the double declares no support at all. Its bounds are not
@@ -732,7 +732,7 @@ def check_names_match(geometry_names, blocks, where):
   The generator declares one fixed order for the sampled parameters, and the
   record carries that order. The emulator's input geometry carries its own
   copy of the same names, because that is the order its whitening matrices
-  were built in — the matrices that recenter and rescale each incoming
+  were built in: the matrices that recenter and rescale each incoming
   parameter so the network sees order-one numbers ("whitening"). If the two
   orders ever disagree, the emulator pairs each incoming value with the wrong
   parameter's column: every prediction is then confidently wrong, and nothing
@@ -1102,7 +1102,7 @@ def check_horizontal(blocks_a, blocks_b, where_a, where_b):
   The law is equality of the recorded facts: every fixed cosmology value,
   every convention, and the sampled-coordinate list must match. Two emulators
   that pass may still have been trained on different draws of the same
-  design, and that is fine — they approximate the same physical maps.
+  design, and that is fine: they approximate the same physical maps.
 
   Arguments:
     blocks_a, blocks_b = the two saved emulators' record sections, as
@@ -1300,7 +1300,7 @@ def check_domain(blocks, point, where):
 
   Raises:
     ValueError naming the coordinate, the trained interval, the requested
-    value, and the remediation — check_support's refusals, unchanged.
+    value, and the remediation: check_support's refusals, unchanged.
   """
   check_support(compiled=compile_support(blocks=blocks, where=where),
                 point=point)
@@ -1345,7 +1345,7 @@ def served_support(blocks_a, blocks_b, where_a, where_b):
   # be intersected at all: an interval belonging to a coordinate the other half
   # never sampled has nothing to be intersected WITH. check_horizontal refuses
   # such a pair first, but this function is called by name and must not depend
-  # on the caller having asked the other law first — unguarded, the loop below
+  # on the caller having asked the other law first. Unguarded, the loop below
   # would raise KeyError, which is a crash, not a refusal.
   names_a = list(blocks_a[INPUT_DOMAIN_GROUP]["names"])
   names_b = list(blocks_b[INPUT_DOMAIN_GROUP]["names"])

@@ -25,7 +25,7 @@ inverse covariance; chi2 = r^T Cinv r, the Mahalanobis distance.)
 
 The diagram is drawn for cosmic shear; a CMB spectrum, a scalar set,
 or a background / power-spectrum grid rides the same trunk with its
-own geometry and loss — the networks here never know which family
+own geometry and loss: the networks here never know which family
 they serve.
 
 ResMLP is the baseline: input projection, a stack of identical
@@ -368,12 +368,12 @@ class ResCNN(DesignSpec, nn.Module):
   applies unchanged, minus the basis change:
   those geometries whiten per element in physical order, so the
   trunk already predicts in the head's local basis and W_fd / W_df
-  stay None (forward skips both matmuls — no n_keep x n_keep
+  stay None (forward skips both matmuls: no n_keep x n_keep
   identity buffers). The channel split is the geometry's
   attach_head_coords(): cmb and grid expose ONE channel (the kernel
   slides along ell / z), grid2d one channel per z slice (the kernel
   slides along k; channel mixing couples z slices at like k).
-  groups=2 stays cosmic-shear-only — the xi+/xi- cut is the one
+  groups=2 stays cosmic-shear-only: the xi+/xi- cut is the one
   physical channel boundary this head knows.
 
   Arguments:
@@ -666,7 +666,7 @@ class ResCNN(DesignSpec, nn.Module):
     # A diagonal family geometry (cmb / grid / grid2d) has
     # no eigenbasis: it whitens per element in physical order, so
     # the trunk already predicts in the head's local basis and the
-    # basis change IS the identity — both maps stay None and forward
+    # basis change IS the identity, both maps stay None and forward
     # skips the matmuls (never build n_keep x n_keep identities).
     if hasattr(geom, "evecs"):
       evecs   = geom.evecs.detach()
@@ -683,7 +683,7 @@ class ResCNN(DesignSpec, nn.Module):
   def set_train_phase(self, phase):
     """Switch the two-phase training mode (run_emulator calls this).
 
-    Identical rules to TemplateResCNN.set_train_phase — the plain
+    Identical rules to TemplateResCNN.set_train_phase: the plain
     heads carry it because two-phase training is not an IA-template
     privilege (ANY trunk+head design may
     train in two phases, on every family the heads ride):
@@ -856,7 +856,7 @@ class ResTRF(DesignSpec, nn.Module):
   geometry's attach_head_coords(): grid2d exposes one token per z
   slice (attention shares information across redshifts, each
   slice's private MLP specializes along k); cmb and grid expose ONE
-  physical bin, which is where n_tokens comes in — attention over a
+  physical bin, which is where n_tokens comes in, attention over a
   single token has nothing to attend across, so n_tokens
   re-segments the spectrum into contiguous near-equal ell / z
   windows, the tokenization of the attention CMB emulators
@@ -879,14 +879,14 @@ class ResTRF(DesignSpec, nn.Module):
                    token width max_bin (the LSST-Y1 cosmic-shear
                    run keeps max_bin = 26 theta points per bin,
                    allowing n_heads = 1, 2, or 13; default 2. With
-                   n_tokens set, max_bin = ceil(n / n_tokens) — pick
+                   n_tokens set, max_bin = ceil(n / n_tokens), pick
                    the pair so it divides).
     n_tokens     = None (default): the geometry's bins are the
                    tokens, unchanged. An int (>= 2) re-segments a
                    SINGLE-bin geometry (cmb / grid) into that many
                    contiguous near-equal windows; loud error on a
                    geometry with real physical bins (cosmic shear,
-                   grid2d) — those bins carry physical meaning a
+                   grid2d), those bins carry physical meaning a
                    re-segmentation would slice through.
     n_blocks     = residual blocks in the trunk.
     n_blocks_trf = stacked transformer blocks.
@@ -1003,7 +1003,7 @@ class ResTRF(DesignSpec, nn.Module):
     # leaving a partially constructed model behind.
     # n_tokens: re-segment a SINGLE-bin geometry (a spectrum
     # on one axis: cmb's ell, grid's z) into contiguous near-equal
-    # windows so attention has tokens to attend across — the first
+    # windows so attention has tokens to attend across: the first
     # n % T windows get one extra element, the ragged pad machinery
     # below absorbs the remainder. A geometry with real physical
     # bins already defines the tokens; re-cutting them would slice
@@ -1137,7 +1137,7 @@ class ResTRF(DesignSpec, nn.Module):
   def set_train_phase(self, phase):
     """Switch the two-phase training mode (run_emulator calls this).
 
-    Identical rules to TemplateResTRF.set_train_phase — the plain
+    Identical rules to TemplateResTRF.set_train_phase: the plain
     heads carry it because two-phase training is not an IA-template
     privilege (ANY trunk+head design may
     train in two phases, on every family the heads ride):

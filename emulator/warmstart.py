@@ -922,7 +922,7 @@ def _require_parity_finite(
   transfer): the "[ok] parity" verdict must be IMPOSSIBLE unless every
   compared tensor is finite. Otherwise a diverged epoch-0 model makes the
   compared difference non-finite, and "max|dv| = nan" compares False to
-  the tolerance (and torch.equal reads a NaN as an ordinary mismatch) —
+  the tolerance (and torch.equal reads a NaN as an ordinary mismatch),
   so a broken warm start prints as if parity held, or fails with a
   misleading "extras leaked" / "not the frozen base" reason. This raises
   the one shared finite-contract message instead (never a sentinel),
@@ -993,7 +993,7 @@ def build_warm_start(source,
   Raises:
     ValueError if the parity tolerance is exceeded, if the extra
     parameters leak into the epoch-0 output, or (the finite contract) if
-    the encoded inputs or either model output are non-finite — the [ok]
+    the encoded inputs or either model output are non-finite: the [ok]
     verdict is impossible unless every compared tensor is finite.
   """
   n_extra = len(extra_names)
@@ -1040,7 +1040,7 @@ def build_warm_start(source,
     # which arm diverged. Their difference and the scalar max are then
     # finite by construction, so the tolerance comparison at the foot of
     # this function and the extras-independence torch.equal just below can
-    # never read a NaN as an ordinary mismatch — which would print parity
+    # never read a NaN as an ordinary mismatch, which would print parity
     # as HELD, or raise the wrong reason, on a broken warm start.
     _require_parity_finite("finetune parity", "encoded new-run inputs",
                            enc_new, rows)
@@ -1207,7 +1207,7 @@ def build_transfer_start(chi2fn,
   Raises:
     ValueError if epoch 0 is not the frozen base bitwise, if the extras
     move it, or (the finite contract) if the encoded inputs, the composed
-    prediction, or the frozen base decode are non-finite — the [ok]
+    prediction, or the frozen base decode are non-finite: the [ok]
     verdict is impossible unless every compared tensor is finite.
   """
   in_dim  = getattr(new_pgeom, "encoded_dim", len(new_pgeom.names))

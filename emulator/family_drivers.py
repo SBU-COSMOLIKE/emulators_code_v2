@@ -3,14 +3,14 @@
 A sweep is a controlled comparison.  The same emulator is trained
 several times, once per candidate value of a single setting, with
 everything else held fixed, and every training is scored the same way,
-so comparing the scores shows which value of that setting works best —
+so comparing the scores shows which value of that setting works best:
 the way a lab sweeps a dial through a range of positions and records
 the reading at each stop.  One training at one candidate value is
 called a sweep point.  Two kinds of sweep share these helpers:
 
 - A hyperparameter sweep varies a training choice that is fixed before
-  learning starts — the learning rate, the batch size, the number of
-  epochs — at a fixed number of training rows.  Such pre-fixed choices
+  learning starts (the learning rate, the batch size, the number of
+  epochs) at a fixed number of training rows.  Such pre-fixed choices
   are the hyperparameters; the weights training itself adjusts are
   not.
 - An N-train sweep varies the number of training rows itself, at one
@@ -25,7 +25,7 @@ That block is parsed and applied through exactly one definition, in
 this module.  Both sweep kinds run from the cosmic-shear drivers
 (cosmic_shear_sweep_hyperparam_emulator.py and
 cosmic_shear_sweep_ntrain_emulator.py); the per-family drivers are
-thin wrappers over those drivers' main(prog, family) surface — the
+thin wrappers over those drivers' main(prog, family) surface, the
 same code path, so the multi-GPU worker pool, --gpu-pack, and the
 Optuna journal study (Optuna is the hyperparameter-search library the
 tune drivers use; its journal file lets several processes share one
@@ -33,8 +33,8 @@ search) carry over to every family (see any <family>_<verb>_emulator.py
 header).
 
 One special case, flagged as act_mode by read_sweep_block: sweeping
-the activation — the nonlinear function applied between network
-layers — cannot go through train_args, because the experiment resolves
+the activation (the nonlinear function applied between network
+layers) cannot go through train_args, because the experiment resolves
 its activation family at construction; the sweep sets it directly on
 the experiment object per value instead.
 """
@@ -78,9 +78,9 @@ def resolved_sweep_record(exp,
   command-line-over-YAML precedence, so the values here are the ones
   that will actually execute, not the ones any one file requested.
   The record is a tuple of (key, value) pairs rather than a dict: a
-  tuple cannot be edited after creation, and it survives pickling —
+  tuple cannot be edited after creation, and it survives pickling,
   pickle is Python's object serializer, and worker processes receive
-  their arguments through it — without any dict-ordering doubt.
+  their arguments through it, without any dict-ordering doubt.
 
   Two of the recorded facts deserve definition.  The activation is the
   nonlinear function between network layers, and n_gates counts the
@@ -99,8 +99,8 @@ def resolved_sweep_record(exp,
                         difference between the emulated and the exact
                         data vector).
     n_gpus            = the resolved number of worker GPUs.
-    pool              = for an N-train sweep — the kind that varies the
-                        number of training rows — the total row count
+    pool              = for an N-train sweep (the kind that varies the
+                        number of training rows) the total row count
                         those training sets are drawn from; None for a
                         hyperparameter sweep.
     n_train           = for a hyperparameter sweep, the training-row
@@ -121,7 +121,7 @@ def resolved_sweep_record(exp,
   # (validate_finetune_config requires it deleted: the architecture
   # lives in the source artifact), so the model-block reads below
   # would crash on one. No sweep of a fine-tune run has ever been
-  # possible — this record is built before any training starts — so
+  # possible (this record is built before any training starts) so
   # the honest behavior is a named refusal here, the one choke point
   # both sweep drivers pass through.
   if "model" not in exp.train_args:
@@ -239,7 +239,7 @@ def set_by_path(train_args, path, value):
   """Build a deep copy of train_args with one dotted-path leaf replaced.
 
   ``copy.deepcopy`` duplicates the whole nested mapping, new inner
-  dicts included, so editing the copy can never change the original —
+  dicts included, so editing the copy can never change the original:
   each sweep point (one candidate value's training) runs from its own
   configuration and the shared baseline stays pristine.  The walk then
   splits the dotted path ("lr.lr_base" -> ["lr", "lr_base"]), descends
@@ -278,7 +278,7 @@ def read_sweep_block(cfg):
   the list of values to try (the module docstring defines the sweep
   itself).  Three refusals guard the sweep before any training starts.  A
   missing block is refused with a paste-ready example (an empty
-  `sweep:` line — every child commented out parses to nothing —
+  `sweep:` line: every child commented out parses to nothing,
   counts as missing).  The two keys
   that select the model class (model.name, model.ia) are refused
   because changing the class mid-sweep would compare architectures,

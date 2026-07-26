@@ -2669,7 +2669,7 @@ def rebuild_emulator(path_root, device, compile_model=True):
     # predictor / cobaya adapter rebuild the law-aware decode
     # without rereading the config. None / absent on non-CMB artifacts.
     # the law keys are guarded by the class check (a GridGeometry also
-    # carries a .law attr — its TARGET law, a different registry), so a
+    # carries a .law attr, its TARGET law, a different registry), so a
     # bare getattr would smear one family's fact onto another.
     "cmb":            isinstance(geom, CmbDiagonalGeometry),
     "amplitude_law":  (geom.law

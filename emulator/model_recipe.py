@@ -3,7 +3,7 @@
 A saved emulator carries a "model recipe": a plain mapping that names the
 network class, its input and output sizes, and every constructor option
 needed to rebuild it.  The constructor options travel under the key
-"kwargs", Python's shorthand for keyword arguments — the named options a
+"kwargs", Python's shorthand for keyword arguments: the named options a
 constructor accepts.  The recipe is data, not executable Python.  This
 module therefore contains only plain lists of accepted values and value
 checks.  It does not import Torch, the model designs, the geometry classes,

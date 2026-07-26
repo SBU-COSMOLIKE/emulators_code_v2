@@ -38,7 +38,7 @@ from generator_core import (GeneratorCore, capture_native_output,
 #      probe:  cmblensed        # or cmbunlensed (TT/TE/EE without lensing)
 #      lrange: [2, 5000]        # multipole range, 2 <= lmin < lmax
 #  plus the shared keys (ord; fiducial/params_covmat_file when --unif 0).
-#  The likelihood block may be the dummy `one` — this script adds the Cl
+#  The likelihood block may be the dummy `one`: this script adds the Cl
 #  requirements to the cobaya model itself.
 #
 #- The output files are
@@ -51,7 +51,7 @@ from generator_core import (GeneratorCore, capture_native_output,
 #
 #      # Corresponding data vectors: FOUR per-spectrum 2D files, one row per
 #      # sample, one column per multipole (raw C_ell, no l(l+1)/2pi factor,
-#      # muK^2 for TT/TE/EE, dimensionless C_L^{phiphi} for pp — the same
+#      # muK^2 for TT/TE/EE, dimensionless C_L^{phiphi} for pp: the same
 #      # units/convention as compute_cmb_covariance.py, so dumps and
 #      # covariance always match):
 #      lcdm_dvs_train_cmblensed_unifs_tt.npy
@@ -69,10 +69,10 @@ from generator_core import (GeneratorCore, capture_native_output,
 # Deviations from the legacy emultraining/dataset_generator_cmb.py, part of
 # the shared-generator design (ai/notes/families-scalar-cmb.md):
 #   1. Four per-spectrum 2D .npy files replace the legacy 3D (N, ell, 5)
-#      array — the training stack stages 2D dv files.
+#      array: the training stack stages 2D dv files.
 #   2. phi-phi is FILLED from get_Cl (the legacy file zeroed that column and
 #      never produced phiphi training data).
-#   3. The legacy "EXTRA" derived-parameter column dies — derived scalars are
+#   3. The legacy "EXTRA" derived-parameter column dies, derived scalars are
 #      the scalar-emulator unit's job (scalar_train_emulator on the same
 #      params dump).
 #-------------------------------------------------------------------------------
@@ -86,7 +86,7 @@ class dataset(GeneratorCore):
   """
   CMB spectra generator: one CAMB-through-cobaya call per sample yields
   all four spectra at once, stored as four per-spectrum 2D arrays
-  ({dvsf}_tt.npy ... {dvsf}_pp.npy) — the core's dv-store hooks are all
+  ({dvsf}_tt.npy ... {dvsf}_pp.npy): the core's dv-store hooks are all
   overridden together. The companion {dvsf}_ell.npy sidecar stores the
   exact int64 multipole axis the columns mean. The per-sample payload is
   a (4, nell) float32 array in SPECTRA row order.
@@ -107,7 +107,7 @@ class dataset(GeneratorCore):
     whitening.
 
     The Cl requirements are added HERE, to the model itself, so the
-    training YAML's likelihood block can be the dummy `one` — the script
+    training YAML's likelihood block can be the dummy `one`: the script
     never depends on a likelihood having requested the spectra.
 
     Arguments:
@@ -303,7 +303,7 @@ class dataset(GeneratorCore):
     Allocate all four stores for nrows samples, sized from the first
     computed (4, nell) payload (RAM-aware: in-RAM zeros or on-disk
     memmaps, one shared policy). The exact int64 multipole axis is saved
-    beside the stores — the training path reads the grid from the FILE
+    beside the stores: the training path reads the grid from the FILE
     (resolved values, never re-declared in a YAML).
 
     Arguments:
@@ -374,7 +374,7 @@ class dataset(GeneratorCore):
     Returns:
       a (4, nell) float32 array in SPECTRA row order (tt, te, ee, pp)
       over l = lmin..lmax: raw C_ell (no l(l+1)/2pi factor), muK^2 for
-      the CMB spectra and dimensionless C_L^phiphi for pp — the same
+      the CMB spectra and dimensionless C_L^phiphi for pp: the same
       units and convention as compute_cmb_covariance.py, so dumps and
       covariance always match.
 
@@ -423,7 +423,7 @@ class dataset(GeneratorCore):
                          self.model._params_of_dependencies):
       if not (hasattr(x, 'get_Cl') and callable(getattr(x, 'get_Cl'))):
         continue
-      # raw C_ell (ell_factor=False: no l(l+1)/2pi), muK^2 — the same call
+      # raw C_ell (ell_factor=False: no l(l+1)/2pi), muK^2: the same call
       # compute_cmb_covariance.py makes, so dumps and covariance file share
       # units and conventions by construction.
       lensed = x.get_Cl(ell_factor=False, units="muK2")

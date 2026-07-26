@@ -21,7 +21,7 @@ from emulator import fixed_facts
 #   - the linear P(k, z), Mpc^3
 #   - the nonlinear BOOST B(k, z) = P_nl / P_lin (dimensionless)
 # and, when train_args.write_syren_base is true, the syren analytic BASE for
-# each (emulator/syren_base.py — the formula the emulator corrects, written
+# each (emulator/syren_base.py: the formula the emulator corrects, written
 # beside the dump so the training's law transform reads resolved values from
 # disk, never a re-run of a possibly-drifted package).
 #
@@ -53,7 +53,7 @@ from emulator import fixed_facts
 #                                     # false for a law-none run
 #  plus the shared keys (ord; fiducial/params_covmat_file when --unif 0).
 #  The theory block's halofit choice (e.g. halofit_version: mead2020) is the
-#  YAML's, persisted with the run. The likelihood may be the dummy `one` —
+#  YAML's, persisted with the run. The likelihood may be the dummy `one`:
 #  this script adds the Pk requirements to the model itself.
 #  When write_syren_base is true, the sampled/params block must resolve the
 #  names syren_params_from reads (As or As_1e9, ns, H0, omegab, omegam).
@@ -172,7 +172,7 @@ class dataset(GeneratorCore):
     # The requirement's k_max is DERIVED from the resolved k grid:
     # 2 x the grid's top, floored at 20 (halofit's sigma integrals
     # need support past the grid edge). The legacy convention was the
-    # verbatim constant 200 — which IS this formula on the legacy
+    # verbatim constant 200, which IS this formula on the legacy
     # production grid (k top 100 -> 200, byte-identical requirement),
     # so production behavior is unchanged; a small-grid smoke run
     # stops paying for transfers at k = 200 it never reads (the first
@@ -211,7 +211,7 @@ class dataset(GeneratorCore):
     files the emulator corrects. The base formulas evaluate their growth
     factors at a neutrino mass pinned in base_pklin's own signature, so an
     emulator trained against this base carries that pin whether or not the
-    run sampled mnu — the record names the base and the pinned mass
+    run sampled mnu: the record names the base and the pinned mass
     together, because the pair is what a consumer must match. The pinned
     mass is read from the formula's own default (the generator calls
     base_pklin without an mnu argument), so the record cannot drift from
@@ -395,7 +395,7 @@ class dataset(GeneratorCore):
     """
     Allocate every store for nrows samples (RAM-aware, one shared
     policy) and write the grid sidecars ({dvsf}_z.npy / {dvsf}_k.npy)
-    once — the training path reads the grids from the FILES.
+    once: the training path reads the grids from the FILES.
 
     Arguments:
       nrows     = the total number of sample rows the run will fill.
@@ -464,8 +464,8 @@ class dataset(GeneratorCore):
     One CAMB call (through the Pk_interpolator requirement) serves both
     interpolators; the fixed (z, k) grids are evaluated and flattened
     with z as the outer axis. When write_syren_base is on, the syren
-    analytic base is evaluated at the same row — under the run's cached
-    dark-energy law, so a varying wa reaches the base formulas — and
+    analytic base is evaluated at the same row (under the run's cached
+    dark-energy law, so a varying wa reaches the base formulas) and
     rides along as the *_base members.
 
     Arguments:

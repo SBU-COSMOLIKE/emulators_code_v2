@@ -5,9 +5,9 @@ fluctuations per wavenumber k at redshift z, the quantity the
 matter-power (MPS) family emulates.  The MPS emulators CORRECT an
 approximate formula rather than predict from scratch: the network
 target is log(P / P_base), where P_base comes from the syren
-(symbolic_pofk) formulas — closed-form fits to P(k) found by symbolic
-regression — copied into this repository (vendored) under syren/.
-This module is the base's ONLY definition — the dump generator (which
+(symbolic_pofk) formulas, closed-form fits to P(k) found by symbolic
+regression, copied into this repository (vendored) under syren/.
+This module is the base's ONLY definition: the dump generator (which
 writes the base beside the raw dump), the emul_mps adapter (which
 multiplies it back at inference), and the gates all call these two
 functions, so the formula the emulator corrects can never fork between
@@ -16,13 +16,13 @@ them.
 The math is the legacy emulmps_w0wa.py verbatim (the porting
 discipline; the calls' unit conventions are load-bearing).  h is the
 Hubble constant in units of 100 km/s/Mpc, and syren works in "per h"
-units — wavenumbers in h/Mpc, powers in (Mpc/h)^3 — while this library
+units, wavenumbers in h/Mpc, powers in (Mpc/h)^3, while this library
 works in plain Mpc units, so each call converts on the way in and out:
 
     base_pklin:  k [1/Mpc] -> k/h [h/Mpc] for syren; plin_emulated at
                  z = 0 in (Mpc/h)^3; rescaled to each z by the
                  approximate growth (D_z/D_0)^2 * (R_z/R_0) at
-                 k_ref = 1e-4 (mnu fixed at 0.06 — the legacy
+                 k_ref = 1e-4 (mnu fixed at 0.06: the legacy
                  convention); divided by h^3 -> Mpc^3.
     base_boost:  sigma8 from As_to_sigma8, then syren-halofit's
                  run_halofit_vec with return_boost=True and the LINEAR
@@ -41,7 +41,7 @@ import numbers
 
 import numpy as np
 
-# the formulas are VENDORED in-repo (syren/, numpy-only — provenance
+# the formulas are VENDORED in-repo (syren/, numpy-only, provenance
 # and the import-only deviations in syren/README.md), so the imports
 # are unconditional: no pip install, no version drift against the
 # base the artifacts were trained on.
@@ -133,9 +133,9 @@ def resolve_dark_energy_coordinates(
   its pressure to its energy density; w = -1 is a cosmological
   constant.  The CPL (Chevallier-Polarski-Linder) form lets it evolve:
   w(a) = w0 + wa * (1 - a), with w0 the present-day value and wa the
-  evolution slope.  Samplers spell these coordinates differently —
+  evolution slope.  Samplers spell these coordinates differently,
   ``w`` and ``w0`` are aliases for the present-day value, and some
-  runs sample the sum ``w0pwa`` = w0 + wa instead of wa — so this
+  runs sample the sum ``w0pwa`` = w0 + wa instead of wa, so this
   resolver accepts every spelling and returns the one canonical pair.
 
   Two complete coordinate forms are accepted without an additional law:
@@ -367,8 +367,8 @@ def base_pklin(k_mpc, z, As_1e9, ns, H0, Ob, Om, w0=-1.0, wa=0.0,
   units.  This wrapper converts the wavenumbers to syren's h/Mpc,
   rescales the z = 0 spectrum to each requested redshift with the
   approximate growth factor evaluated at the reference wavenumber
-  k_ref = 1e-4 — the growth formulas take the scale factor
-  a = 1/(1+z) as their time argument — and divides by h^3 so the
+  k_ref = 1e-4, the growth formulas take the scale factor
+  a = 1/(1+z) as their time argument, and divides by h^3 so the
   result comes back in plain Mpc^3.
 
   Arguments:

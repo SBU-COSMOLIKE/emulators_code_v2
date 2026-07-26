@@ -94,7 +94,7 @@ class dataset(GeneratorCore):
     Feeds the row to every cobaya component (theory + likelihood) with
     the hand-rolled check_cache_and_compute loop, scans the captured
     native output for CAMB error text, then reads the likelihood's own
-    get_datavector — the same vector its chi2 would use.
+    get_datavector: the same vector its chi2 would use.
 
     Arguments:
       sample = one parameter row (1D, train_args.ord order).

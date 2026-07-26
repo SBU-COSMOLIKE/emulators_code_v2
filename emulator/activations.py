@@ -2,8 +2,8 @@
 
 An activation is the nonlinear function applied between a network's
 layers; without one, stacked linear layers would collapse to a single
-linear map.  Each class here is an nn.Module — PyTorch's base class for
-anything that carries learnable parameters — computing one elementwise
+linear map.  Each class here is an nn.Module (PyTorch's base class for
+anything that carries learnable parameters) computing one elementwise
 activation with learnable per-feature shape parameters; a ResBlock
 takes an `act` factory (a callable act(dim) -> module) and builds one
 per layer.
@@ -138,9 +138,9 @@ def activation_factory_name(factory):
 
     - a class or module passed DIRECTLY (activation_fcn, GatedActivation,
       nn.ReLU, ...) is matched by identity against the known families;
-    - a closure built by make_activation — a closure is a function
+    - a closure built by make_activation (a closure is a function
       defined inside another function that remembers its maker's local
-      variables, here the requested name and gate count — carries the
+      variables, here the requested name and gate count) carries the
       requested name on itself as the `_emulator_activation_name`
       attribute, so the closure answers for any registered name,
       including future ones.

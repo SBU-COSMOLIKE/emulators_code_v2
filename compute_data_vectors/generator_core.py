@@ -22,8 +22,8 @@ differs.
                    generator_core.py (this file)
                    - CLI parser (identical flags for every driver)
                    - parameter sampling (uniform draws, or the emcee
-                     package — an ensemble MCMC sampler whose parallel
-                     chains are called walkers — on a tempered
+                     package, an ensemble MCMC sampler whose parallel
+                     chains are called walkers, on a tempered
                      Gaussian), seeded by the required --seed flag
                    - chain + .paramnames + .ranges + .covmat writers
                    - the .facts.yaml scientific record beside the chain
@@ -225,8 +225,8 @@ def capture_native_output():
   (Fortran, C, etc.) that go directly to fd 1 (stdout) or fd 2 (stderr).
   Author: From Claude AI.
   """
-  stdout_fd = sys.stdout.fileno()  # fd 1 — where stdout currently points
-  stderr_fd = sys.stderr.fileno()  # fd 2 — where stderr currently points
+  stdout_fd = sys.stdout.fileno()  # fd 1, where stdout currently points
+  stderr_fd = sys.stderr.fileno()  # fd 2, where stderr currently points
   stdout_dup = os.dup(stdout_fd)   # bookmark original stdout destination
   stderr_dup = os.dup(stderr_fd)   # bookmark original stderr destination
   tmp = tempfile.TemporaryFile(mode='w+')
@@ -398,8 +398,8 @@ class GeneratorCore:
   PS: a "driver" is one of the thin dataset_generator_*.py scripts; it
   subclasses this core and fills in the family physics (which cobaya
   products to request, how to compute one row, how the row store is
-  laid out on disk). Everything the drivers share — sampling, seeding,
-  checkpointing, MPI, the sidecar files — lives here once.
+  laid out on disk). Everything the drivers share (sampling, seeding,
+  checkpointing, MPI, the sidecar files) lives here once.
   """
   VALID_PROBES = ()      # driver MUST override: accepted train_args.probe
   EXTRA_TRAIN_KEYS = ()  # driver MAY override: extra required train_args keys
@@ -444,7 +444,7 @@ class GeneratorCore:
          train_args blocks;
       4. build the cobaya model (get_model), check train_args.probe
          against the driver's whitelist, and hand the driver its own
-         train_args keys (_read_train_args — this is also where a
+         train_args keys (_read_train_args: this is also where a
          driver registers its cobaya requirements);
       5. Gaussian mode only: load the fiducial point and the parameter
          covariance, reduce its correlations to --maxcorr, and build a
@@ -465,7 +465,7 @@ class GeneratorCore:
 
     Raises:
       ValueError / KeyError / FileNotFoundError / RuntimeError naming
-      the flag, YAML block, file, or bound that is wrong — always
+      the flag, YAML block, file, or bound that is wrong, always
       before any output path is created.
     """
     #---------------------------------------------------------------------------
@@ -869,7 +869,7 @@ class GeneratorCore:
     a chain whose record is missing.
 
     Arguments:
-      names = the sampled parameters in train_args.ord order — the same
+      names = the sampled parameters in train_args.ord order: the same
               order the chain columns, .ranges rows, and both bounds
               arrays use.
 
@@ -948,8 +948,8 @@ class GeneratorCore:
   #-----------------------------------------------------------------------------
   # The seven _dv_* hooks below are the STORE: how computed payload rows
   # live on disk and in memory. This default implements the simplest
-  # layout — one 2D float32 array, one row per sample, saved whole at
-  # {dvsf}.npy — which is exactly what the lensing driver needs (its
+  # layout (one 2D float32 array, one row per sample, saved whole at
+  # {dvsf}.npy) which is exactly what the lensing driver needs (its
   # payload is one flat vector). A driver whose payload is richer (four
   # CMB spectra, two background quantities, the mps quantity set)
   # overrides all seven hooks together; the rest of the core never
@@ -1199,7 +1199,7 @@ class GeneratorCore:
 
     A missing file refuses (naming every missing file) rather than
     quietly starting fresh: a mistyped output name would otherwise
-    regenerate — and overwrite — instead of resuming. The family
+    regenerate (and overwrite) instead of resuming. The family
     loader (_dv_load_chk) additionally checks the loaded stores against
     the YAML: row counts against the chain, column counts and axis
     sidecars against the configured grids, so a checkpoint from one
@@ -1320,7 +1320,7 @@ class GeneratorCore:
     (legend: fid = train_args.fiducial, C = the correlation-reduced
     parameter covariance from setup, T = --temp. Dividing by T flattens
     the distribution, so the training cloud extends well past the
-    posterior it was built from — an emulator must stay accurate where
+    posterior it was built from: an emulator must stay accurate where
     a future chain explores, not only where it converges.)
 
     The row is rejected (-inf) when cobaya's own prior rejects it or
@@ -1372,9 +1372,9 @@ class GeneratorCore:
     derived getdist column 2 minuslogpost; T = --temp.)
 
     A resume run (--loadchk 1, --append 0) only reads the files back.
-    An append run draws nparams NEW rows — from a stream derived from
+    An append run draws nparams NEW rows (from a stream derived from
     the seed plus the existing row count, so the fresh rows are never
-    repeated — extends the chain and the family stores, refreshes the
+    repeated) extends the chain and the family stores, refreshes the
     .covmat, and rewrites the .facts.yaml (the chain's bytes changed,
     so the digest naming it changed too).
 
@@ -1640,7 +1640,7 @@ class GeneratorCore:
     Compute one data-vector payload per parameter row, farmed over MPI.
 
     Serial (one process): rank 0 walks the rows itself. Parallel: rank 0
-    is the master and every other rank a worker in a task farm —
+    is the master and every other rank a worker in a task farm,
 
         rank 0 (master)                      rank w (worker)
         send (row j, params[j]) ──TTAG──►    compute payload
@@ -1653,7 +1653,7 @@ class GeneratorCore:
 
     (legend: TTAG/RTAG/STAG/DTAG = the four MPI message tags: task,
     result, stop, done. params[j] = row j of self.samples. A payload is
-    whatever the driver's _compute_dvs_from_sample returns — one flat
+    whatever the driver's _compute_dvs_from_sample returns: one flat
     vector, a (4, nell) spectrum block, a per-quantity dict.)
 
     Failure handling: a worker exception zeroes the row and sets its

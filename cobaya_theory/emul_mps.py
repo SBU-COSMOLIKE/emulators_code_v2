@@ -32,7 +32,7 @@ base under a syren law, the raw surface under "none"); the low-k blend
 = the legacy convention boost -> 1 + (boost - 1) * (1 - exp(-(k/k_t)^n))
 with k_t = 0.005 1/Mpc, n = 2, pinning the boost to exactly 1 on
 linear scales (applied on the syren path, where the base construction
-needs it — a law-none boost learned the raw low-k boost directly).
+needs it: a law-none boost learned the raw low-k boost directly).
 """
 
 import math
@@ -465,7 +465,7 @@ class emul_mps(Theory):
       emulators = list of exactly TWO saved grid2d-emulator path roots
                   (ROOTDIR-relative unless absolute): one whose stored
                   quantity is "pklin" and one whose quantity is
-                  "boost". Order does not matter — each artifact
+                  "boost". Order does not matter: each artifact
                   declares itself (quantity, grids, law).
       compile   = optional bool, torch.compile on CUDA (default False).
       allow_k_extrapolation = optional bool (default True): permit the
@@ -581,7 +581,7 @@ class emul_mps(Theory):
                     + repr(sorted(allowed_tuples[quantity])))
 
         # the two artifacts must share one (z, k) grid exactly (they
-        # come from one generator run) — the boost multiplies the
+        # come from one generator run): the boost multiplies the
         # linear P point-for-point.
         z1 = self.p_lin.z.detach().cpu().numpy()
         z2 = self.p_boost.z.detach().cpu().numpy()

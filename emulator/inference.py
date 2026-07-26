@@ -6,7 +6,7 @@ The ``.emul`` file contains the model's learned tensors (its weights). The
 the network), the geometries, the scientific facts, the configuration, and
 the training histories. Prediction then follows the same steps used during
 training: order the raw parameters, encode them, call the model, and apply
-the saved decoder — the inverse of the scaling the outputs were trained
+the saved decoder: the inverse of the scaling the outputs were trained
 under. The final return value depends on the observable family:
 
 =====================  ======================================================
@@ -46,7 +46,7 @@ responsibility.
 Two checks run once when a chain starts. The module-level
 ``check_artifacts_fixed_values`` and ``check_artifacts_pair_up`` functions are
 shared by all five Cobaya adapters.
-The third — the training region against one point — is asked by ``predict``
+The third (the training region against one point) is asked by ``predict``
 itself, on every call, because a point outside the region is answered
 confidently and wrongly by a network that cannot know it is extrapolating.
 
@@ -443,7 +443,7 @@ class EmulatorPredictor:
         transfer_space=transfer_space)
       return
     # grid (background-function) emulator: predict returns
-    # {"z": grid, quantity: row} — the raw physical function on the
+    # {"z": grid, quantity: row}: the raw physical function on the
     # stored grid (the target law already decoded by the geometry);
     # the distance pipeline (emulator/background.py) is applied by the
     # consumer (emul_baosn / a profile script), never re-derived here.
@@ -462,8 +462,8 @@ class EmulatorPredictor:
         transfer_space=transfer_space)
       return
     # grid2d (matter-power-spectrum) emulator: predict returns
-    # the LAW-SPACE surface on the stored (z, k) axes — log(P/P_base)
-    # under a syren law, the raw surface under "none" — keyed by the
+    # the LAW-SPACE surface on the stored (z, k) axes, log(P/P_base)
+    # under a syren law, the raw surface under "none", keyed by the
     # quantity tag; the consumer multiplies the base back through
     # emulator/syren_base.py, exactly as emul_mps does.
     if self._grid2d:
@@ -1113,8 +1113,8 @@ class EmulatorPredictor:
                    from the artifact's own record (fixed_facts.check_support).
 
     Neither is optional, and for one reason: an emulator asked outside its
-    training region does not fail. It extrapolates — a number of the right
-    shape, with the right sign, and no warning — exactly as a permuted row is
+    training region does not fail. It extrapolates (a number of the right
+    shape, with the right sign, and no warning) exactly as a permuted row is
     whitened against the wrong columns and answered confidently. A silently
     wrong answer must be refused at the door, not left to each consumer to
     remember to ask for. A development script that wants to WATCH the

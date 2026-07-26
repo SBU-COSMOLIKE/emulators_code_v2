@@ -39,7 +39,7 @@ The pool's execution model, one GPU shown:
 PS: spawn = the multiprocessing start method that launches a fresh
 interpreter per child (a forked child cannot reuse the parent's CUDA
 context, the per-process state CUDA keeps for a GPU); Queue = a
-process-safe channel — items put by one process can be got by
+process-safe channel, items put by one process can be got by
 another; Lock = mutual exclusion, at most one holder at a time;
 Semaphore(n) = a counter of n slots, acquire takes one and blocks at
 zero, release returns one; sentinel = a special queue item (None

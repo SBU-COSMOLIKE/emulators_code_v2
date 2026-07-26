@@ -10,7 +10,7 @@ learns the difference the new physics makes.
 Two classes share that design. TransferChi2 is the cosmolike
 (dense-covariance) form, covering the full form x space matrix and the
 factored template bases. TransferDiagChi2 is the
-elementwise-whitened form for the cmb / grid / grid2d families — plain
+elementwise-whitened form for the cmb / grid / grid2d families, plain
 bases only, composition in the whitened space only (which for these
 families IS the chi2 metric basis), both combine forms.
 
@@ -557,7 +557,7 @@ class TransferDiagChi2(CmbDiagonalChi2):
   The elementwise-whitened sibling of TransferChi2,
   serving cmb (amplitude law "none") / grid / grid2d:
   a plain frozen base whose output is the whitened row, a correction net
-  of the same width, and the composition ALWAYS in the whitened space —
+  of the same width, and the composition ALWAYS in the whitened space,
   for these families that space is the chi2 metric basis, and composing
   anywhere else would either be an elementwise scale away (no new
   capability) or pass a log-law domain edge (a NaN risk). Both combine
@@ -567,7 +567,7 @@ class TransferDiagChi2(CmbDiagonalChi2):
 
   and both are exactly the base at r = 0 (the epoch-0 parity gate).
   Note the whitened coordinates are centered, so base_w crosses zero
-  element by element and gain has no leverage at the crossings —
+  element by element and gain has no leverage at the crossings,
   validate_transfer recommends sum on these families for that reason.
 
   Speed design (the TransferChi2 pattern): the frozen base runs once
@@ -640,7 +640,7 @@ class TransferDiagChi2(CmbDiagonalChi2):
     self.form        = form
     self.space       = space
     # live-base mode (the refine stage) is NOT offered on the diagonal
-    # families in V1 — validate_transfer rejects transfer.refine there —
+    # families in V1, validate_transfer rejects transfer.refine there,
     # but the flag exists so the loop's set_live probes stay uniform.
     self.live        = False
 
@@ -792,7 +792,7 @@ class TransferDiagChi2(CmbDiagonalChi2):
 
     The inherited penalty acts on pred - target, which for a transfer
     loss is a correction against a PACKED target, not a whitened
-    residual — attaching it would crash with a shape error at the
+    residual, attaching it would crash with a shape error at the
     first loss. A composed-residual roughness needs its own design;
     until then the combination is refused with the fix named.
 

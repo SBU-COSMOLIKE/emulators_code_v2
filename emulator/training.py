@@ -329,9 +329,9 @@ def make_optimizer(model, opt_opts, lr, device):
   value in the dict, its settings the other keys. Parameters split
   into two groups so weight decay falls only on true weight matrices,
   chosen by module role, not tensor shape: the .weight of every
-  nn.Linear / nn.Conv1d / BinLinear. Everything else is undecayed —
+  nn.Linear / nn.Conv1d / BinLinear. Everything else is undecayed,
   biases, Affine / FeatureAffine gains, and every activation
-  parameter of any shape (e.g. multigate's (K, dim) w / beta / mu) —
+  parameter of any shape (e.g. multigate's (K, dim) w / beta / mu),
   since decaying a bias or an activation shape parameter has no
   principled meaning and would drag the activation toward degenerate
   forms. A module left off the allowlist defaults to undecayed (the
@@ -360,7 +360,7 @@ def make_optimizer(model, opt_opts, lr, device):
   """
   # Decay only true weight matrices: the .weight of nn.Linear /
   # nn.Conv1d / BinLinear. Collect those weights by id from a module
-  # walk, then split every parameter on membership — so biases,
+  # walk, then split every parameter on membership, so biases,
   # Affine / FeatureAffine gains, and every activation parameter (any
   # shape, e.g. multigate's (K, dim) w / beta / mu, and BinLinear's
   # (G, out) biases) stay undecayed, decided by module role not tensor
@@ -1750,7 +1750,7 @@ def validate_loss(loss, which):
   # the CMB residual-roughness sub-block: a per-sample penalty on
   # short-period residual oscillations, added to the per-sample chi2
   # before the shared reduction. Absent = the term does not exist (the
-  # off-identity rule; lam 0 is rejected — delete the block instead).
+  # off-identity rule; lam 0 is rejected, delete the block instead).
   # Both keys are required when present (never a silent default), and the
   # block rides the TOP-LEVEL loss only (the trunk/head phases are a
   # cosmic-shear head feature; run_emulator applies the term once, to the
@@ -2047,7 +2047,7 @@ def validate_thresholds(thresholds):
 # once and enforced with one shared error shape)
 # A NaN or Inf score must NEVER rank, select, or report as a valid
 # result. A non-finite per-sample chi2 compares False to every threshold,
-# so it counts as BELOW threshold — a diverged model would report a
+# so it counts as BELOW threshold: a diverged model would report a
 # perfect frac 0.0 and be snapshotted as the best epoch, defeating the
 # dead-network gate discipline itself. So every training/scoring site
 # aborts LOUDLY on a non-finite value: never a sentinel, never counted
@@ -2064,7 +2064,7 @@ def _report_nonfinite(side, quantity, n_bad, n_total, positions):
                 indices, or a batch identity), already a Python list.
 
   Raises:
-    ValueError, always — the caller only calls this once it has found a
+    ValueError, always: the caller only calls this once it has found a
     non-finite value.
   """
   raise ValueError(
@@ -2955,7 +2955,7 @@ def training_loop_batched(nepochs,
       n_full = (Cc.shape[0] // bs) * bs   # whole batches only
       for s in range(0, n_full, bs):
         loss = fwd_loss(Cc[s:s+bs], dvc[s:s+bs], trim_t, focus_t, s_t)
-        # finite contract: refuse to backward a non-finite loss — it
+        # finite contract: refuse to backward a non-finite loss, it
         # would produce NaN gradients, corrupt the weights, and the
         # corrupted model would then score frac 0.0 (a NaN val chi2
         # counts below every threshold) and be selected best. One host
@@ -2981,7 +2981,7 @@ def training_loop_batched(nepochs,
           # clipping off: still compute the norm (read-only, the
           # gradients are never scaled) so the finite contract can
           # refuse a NaN/Inf gradient before optimizer.step mutates the
-          # weights — clipping disabled is not the same as unchecked.
+          # weights, clipping disabled is not the same as unchecked.
           grad_norm = _global_grad_norm(model.parameters())
         if not bool(torch.isfinite(grad_norm)):
           _report_nonfinite(
@@ -3355,7 +3355,7 @@ def run_emulator(train_set,
                    training_loop_batched. Bounds any excursion
                    into a bad basin to `patience` epochs.
     trunk_epochs = if > 0, two-phase training (the model must
-                   define set_train_phase — every design with a
+                   define set_train_phase: every design with a
                    correction head does: plain ResCNN / ResTRF on
                    any family, and the factored-IA templates):
                    the first trunk_epochs epochs train the trunk
@@ -3374,7 +3374,7 @@ def run_emulator(train_set,
                    handoff and train the head alone. False: train
                    trunk + head together (a joint fine-tune
                    warm-started by phase 1) via set_train_phase
-                   ("joint") — costlier per epoch (the trunk backward
+                   ("joint"), costlier per epoch (the trunk backward
                    returns). Needs trunk_epochs > 0 (else a config
                    error); a non-bool is rejected.
     trunk_opts   = optional trunk-phase (phase 1) overrides;
@@ -3527,7 +3527,7 @@ def run_emulator(train_set,
   # the CMB residual-roughness term: configured once on the run's
   # loss object (the term is per-sample state on the chi2fn, not a per-pass
   # knob; validate_loss already restricted the block to the top level). A
-  # loss object without configure_roughness is not a CMB loss — loud, so a
+  # loss object without configure_roughness is not a CMB loss, loud, so a
   # cosmolike / scalar YAML carrying the block never trains silently
   # without it.
   if loss_top["roughness"] is not None:
@@ -3688,7 +3688,7 @@ def run_emulator(train_set,
               f"transformations)")
 
   # two-phase capability check, now that the model exists.
-  # set_train_phase is a duck-typed model capability — every design
+  # set_train_phase is a duck-typed model capability: every design
   # with a correction head defines it (plain ResCNN / ResTRF on any
   # family, and the factored-IA templates); hasattr reaches through a
   # torch.compile wrapper, which forwards attribute lookups to the
@@ -3945,7 +3945,7 @@ def run_emulator(train_set,
   for n_pass, phase in plan:
     # phase 2 runs "joint" (trunk + head together) when freeze_trunk is
     # false; the set_train_phase name is then "joint", but the pass role
-    # stays "head" — it still selects head_opts, drives the best-epoch
+    # stays "head": it still selects head_opts, drives the best-epoch
     # restore, and labels the override tail. freeze_trunk None/absent/true
     # keeps the frozen default, byte-identical.
     model_phase = phase
