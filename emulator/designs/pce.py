@@ -510,8 +510,8 @@ class PCEEmulator(nn.Module):
   alpha runs over a sparse multi-index set from a hyperbolic q-norm
   + max-interaction truncation, pruned by greedy residual correlation with a leave-one-out
   criterion (eq 11). Sparse = only a handful of terms survive
-  (sparsity-of-effects), making the fit data-efficient and
-  overfit-resistant.
+  (sparsity-of-effects), so the fit needs fewer training rows and
+  resists overfitting.
 
   What the lambda_i are: the dv targets are covariance-whitened
   (geom.encode), ensemble-centered, and SVD-compressed to K leading
