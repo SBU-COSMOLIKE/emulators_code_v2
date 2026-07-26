@@ -373,7 +373,7 @@ class GridGeometry:
         "redshift(s) " + repr(show) + " (first 8): the training spread "
         "there is below float32 resolution at its magnitude, so decode "
         "would divide by near-zero. The dump is degenerate at those "
-        "points (all cosmologies agree) — check the generator.")
+        "points (all cosmologies agree). Check the generator.")
     return cls(
       device=device,
       quantity=quantity,

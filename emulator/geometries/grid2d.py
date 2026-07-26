@@ -283,7 +283,7 @@ class Grid2DGeometry:
       if zero.size == n_out:
         raise ValueError(
           "Grid2DGeometry: EVERY grid point is constant across the "
-          "training rows — the dump is degenerate (a stale generator "
+          "training rows: the dump is degenerate (a stale generator "
           "writing one cosmology everywhere); check the generator, "
           "this is never a physical surface.")
       # the constant pin (LAW-AGNOSTIC): a constant law-space column

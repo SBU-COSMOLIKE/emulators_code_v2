@@ -1170,7 +1170,7 @@ def _cmb_pages(cmb):
     f"{spec}: short-period residual content (the roughness band; "
     f"periods < ~{hp['period_cut']} in ell). The acoustic structure "
     "(period ~200-300, incl. lensing peak smoothing) is filtered "
-    "out — content here is network wiggle, not physics.")
+    "out; content here is network wiggle, not physics.")
   fb.tight_layout()
   figs.append(fb)
   return figs

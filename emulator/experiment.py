@@ -429,7 +429,7 @@ def _resolve_head_activation(canonical, alias, head_block, trunk_epochs,
       f"model.{head_block}.activation: a per-head activation needs a "
       f"frozen-trunk head phase (trunk_epochs > 0 and freeze_trunk "
       f"true): the head family is the head-phase family. With the trunk "
-      f"and head training together the network keeps one family — set "
+      f"and head training together the network keeps one family, so set "
       f"model.activation only.")
   return pin
 
@@ -1292,7 +1292,7 @@ def validate_grid(cfg, train_args, rescale="none"):
   if law == "log_offset" and "offset" not in grid:
     raise ValueError(
       "the log_offset law needs data.grid.offset (the additive constant "
-      "in log(target + offset), the legacy emulbaosn convention — state "
+      "in log(target + offset), the legacy emulbaosn convention): state "
       "it explicitly, never a default); it is missing")
   if law == "log_offset" and not _is_finite_real(grid["offset"]):
     raise ValueError(
@@ -1421,7 +1421,7 @@ def validate_grid2d(cfg, train_args, rescale="none"):
       if key not in g2:
         raise ValueError(
           "a syren law needs data.grid2d." + key + " (the generator's "
-          "*_base dump beside the raw one — the analytic base the "
+          "*_base dump beside the raw one, the analytic base the "
           "emulator corrects, read from disk); it is "
           "missing")
   else:
@@ -3979,7 +3979,7 @@ class EmulatorExperiment:
               "the " + law + " law takes log(quantity / base) and needs "
               "both strictly positive; found " + str(bad) + " non-positive "
               "entries across the staged rows (a failed generator sample "
-              "left zero rows — drop it from the dump, the failfile names "
+              "left zero rows): drop it from the dump, the failfile names "
               "it)")
           law_chunk = np.log(raw_chunk / base_chunk)
         law_rows[a:b] = law_chunk.astype("float32")
@@ -4731,7 +4731,7 @@ class EmulatorExperiment:
           raise ValueError(
             "the transfer base carries amplitude_law " + repr(bgeom.law)
             + "; a CMB transfer needs a law-none base (the transfer "
-            "loss owns the target construction — train or pick a base "
+            "loss owns the target construction): train or pick a base "
             "with amplitude_law: none)")
         src_ell = bgeom.ell.detach().cpu().numpy()
         if not np.array_equal(ell, src_ell):
@@ -4921,7 +4921,7 @@ class EmulatorExperiment:
             + repr(bgeom.units) + ", law=" + repr(bgeom.law) + ") but "
             "data.grid has (quantity=" + repr(quantity) + ", units="
             + repr(units) + ", law=" + repr(law) + "); a transfer never "
-            "crosses quantities — restate the base's values")
+            "crosses quantities; restate the base's values")
         self.pgeom, extra_names = warmstart.extend_input_geometry(
           source=base,
           covmat_path=d["train_covmat"],
@@ -5044,7 +5044,7 @@ class EmulatorExperiment:
             + repr(bgeom.units) + ", law=" + repr(bgeom.law) + ") but "
             "data.grid2d has (quantity=" + repr(quantity) + ", units="
             + repr(units) + ", law=" + repr(law) + "); a transfer never "
-            "crosses quantities — restate the base's values")
+            "crosses quantities; restate the base's values")
         self.pgeom, extra_names = warmstart.extend_input_geometry(
           source=base,
           covmat_path=d["train_covmat"],
@@ -5087,7 +5087,7 @@ class EmulatorExperiment:
       if n_pin > 0:
         self.log("grid2d: " + str(n_pin) + " constant law-space grid "
                  "point(s) pinned (decode returns the training "
-                 "constant — the physics is flat there)")
+                 "constant, because the physics is flat there)")
       # conv/TRF heads (needs_bins): attach the channel/token
       # split: one bin per z slice, each of length nk
       # (attach_head_coords; conv channels / TRF tokens = z slices).

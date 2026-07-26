@@ -346,7 +346,7 @@ class CmbDiagonalGeometry:
             "CmbDiagonalGeometry.from_state: the 'as_exp2tau_ref' law needs "
             "the persisted fiducial " + repr(key) + ", but the rebuilt state "
             "lacks it. The amplitude factor reads the reference with no code "
-            "default, so a file missing it is refused — re-save the run (or "
+            "default, so a file missing it is refused. Re-save the run (or "
             "retrain) so the artifact records the number.")
     return cls(device, **kwargs)
 

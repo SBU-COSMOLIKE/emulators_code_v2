@@ -591,7 +591,7 @@ def nongaussian_blocks(cambdata, cls, ell, ng_cfg, fsky, log):
         + str(b_hi) + "]: relative spread " + f"{worst:.3g}" + " across "
         "step_fracs " + repr(step_fracs) + " exceeds converge_rtol "
         + repr(rtol) + ". Adjust step_fracs (the study output shows the "
-        "per-band spreads so far) — this failure is loud by design.")
+        "per-band spreads so far). This failure is loud by design.")
     if b % 25 == 0:
       log("  band " + str(b + 1) + "/" + str(len(bands)) + " L=["
           + str(b_lo) + "," + str(b_hi) + "]  spread "

@@ -412,7 +412,7 @@ class emul_baosn(Theory):
                 "range, integrated from H) and [" + repr(self._rec_min)
                 + ", " + repr(self._rec_max) + "] (recombination D_M); "
                 "the desert between them is never emulated and never "
-                "bridged — the two-window design leaves the gap loud. "
+                "bridged: the two-window design leaves the gap loud. "
                 "Retrain with wider grids if the likelihood really needs "
                 "those redshifts.")
 

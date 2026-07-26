@@ -223,7 +223,7 @@ def screen_chi2(chi2, loss, label, positions=None):
       + ", below the allowed roundoff band of -" + repr(band) + "). First "
       "offending positions: " + str(pos) + ". A chi2 is non-negative; a "
       "negative or non-finite score would rank a corrupted model as perfect "
-      "— fix the run, never score it (training rejects the same value).")
+      "so fix the run, never score it (training rejects the same value).")
   return c_norm
 
 

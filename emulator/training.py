@@ -1001,7 +1001,7 @@ def validate_phase_block(block, which):
     if which != "head":
       raise ValueError(
         f"train_args.{which}.activation: the trunk is the same modules "
-        f"in both phases, so it cannot have a phase-local activation — "
+        f"in both phases, so it cannot have a phase-local activation. "
         f"set model.activation (the run's trunk + default family). "
         f"head: activation: is accepted (the head only trains in phase "
         f"2); its canonical spelling is model.cnn.activation / "
@@ -2070,7 +2070,7 @@ def _report_nonfinite(side, quantity, n_bad, n_total, positions):
   raise ValueError(
     "finite contract [" + side + "]: " + str(int(n_bad)) + " of "
     + str(int(n_total)) + " " + quantity + " are non-finite (NaN/Inf) "
-    "— a diverged run. First offending positions: " + str(positions)
+    "from a diverged run. First offending positions: " + str(positions)
     + ". A non-finite score must never rank or select a model; fix the "
     "run, never score it (no sentinel, never counted below threshold).")
 
@@ -3535,7 +3535,7 @@ def run_emulator(train_set,
       raise ValueError(
         "train_args.loss.roughness is the CMB residual-roughness term; "
         "this run's loss (" + type(chi2fn).__name__ + ") does "
-        "not support it — remove the block (it applies to data.cmb runs "
+        "not support it. Remove the block (it applies to data.cmb runs "
         "only)")
     chi2fn.configure_roughness(lam=loss_top["roughness"]["lam"],
                                period_cut=loss_top["roughness"]
@@ -3700,7 +3700,7 @@ def run_emulator(train_set,
     real_cls = type(getattr(model, "_orig_mod", model)).__name__
     raise ValueError(
       "trunk_epochs needs a two-phase model (one defining "
-      "set_train_phase — any design with a correction head, name: "
+      "set_train_phase: any design with a correction head, name: "
       "rescnn or restrf); this model is "
       f"{real_cls}")
 

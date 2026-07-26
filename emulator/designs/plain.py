@@ -1014,7 +1014,7 @@ class ResTRF(DesignSpec, nn.Module):
           "model.trf.n_tokens re-segments a single-bin geometry "
           "(cmb / grid), but this geometry defines "
           + str(len(sizes)) + " physical bins (tomographic bins / "
-          "z slices) — those ARE the tokens; drop n_tokens")
+          "z slices): those ARE the tokens; drop n_tokens")
       expected_identity = torch.arange(
         output_dim, dtype=torch.long, device=pad_idx.device)
       if not bool(torch.all(pad_valid).item()) \

@@ -903,7 +903,7 @@ class emul_mps(Theory):
             pk_lin = out_lin
         if not (np.isfinite(pk_lin).all() and (pk_lin > 0).all()):
             self.log.debug("non-finite or non-positive P_lin at "
-                           f"params={params} — rejecting point.")
+                           f"params={params}; rejecting point.")
             return False
 
         out_b = np.asarray(
@@ -923,14 +923,14 @@ class emul_mps(Theory):
             boost = out_b
         if not (np.isfinite(boost).all() and (boost > 0).all()):
             self.log.debug("non-finite or non-positive boost at "
-                           f"params={params} — rejecting point.")
+                           f"params={params}; rejecting point.")
             return False
 
         with np.errstate(over="ignore", invalid="ignore"):
             pk_nl = boost * pk_lin
         if not (np.isfinite(pk_nl).all() and (pk_nl > 0).all()):
             self.log.debug("non-finite or non-positive P_nl at "
-                           f"params={params} — rejecting point.")
+                           f"params={params}; rejecting point.")
             return False
 
         derived = None
@@ -955,7 +955,7 @@ class emul_mps(Theory):
                 sigma8 = self._compute_sigma8(pk_lin, k, z, h=h0 / 100.0)
                 if not math.isfinite(sigma8) or sigma8 <= 0.0:
                     self.log.debug("non-finite or non-positive sigma8 at "
-                                   f"params={params} — rejecting point.")
+                                   f"params={params}; rejecting point.")
                     return False
                 derived["sigma8"] = float(sigma8)
 
