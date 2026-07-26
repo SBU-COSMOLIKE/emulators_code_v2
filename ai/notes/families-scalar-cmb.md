@@ -706,9 +706,9 @@ for this section.
 fiducial params block must be fixed flat-LCDM, only the allowed parameter
 names may appear, and a dark-energy or curvature name refuses with the
 allowed set named. A required YAML block that is absent raises a KeyError
-naming it; the script reads no silent scientific default. The write side —
-the refusal of an existing output, the finite-array requirement, and the
-temporary-name rename — is owned by the CMB covariance output section of
+naming it; the script reads no silent scientific default. The write side
+(the refusal of an existing output, the finite-array requirement, and the
+temporary-name rename) is owned by the CMB covariance output section of
 `ai/notes/data-generation-and-cuts.md`.
 
 Raw and scaled lensing arrays cover every multipole through the requested
@@ -718,8 +718,8 @@ through `max(lmax, lens_lmax)`.
 #### Acceptance evidence
 
 The cmb-smoke gate runs the script end to end on a valid config. The
-refusal paths — a non-LCDM parameter name, a missing required block, an
-occupied output name, a nonfinite computed array — are stated by the
+refusal paths (a non-LCDM parameter name, a missing required block, an
+occupied output name, a nonfinite computed array) are stated by the
 script and currently have no dedicated CPU test.
 
 ### Stencil step study

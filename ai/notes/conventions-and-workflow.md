@@ -56,9 +56,9 @@ Code teaches the current program; it never narrates a review history.
 
 - Module docstrings use complete sentences with a subject and verb.
 - Public function and nontrivial private function carries an `Arguments:` block
-  naming each argument and a `Returns:` block, plus a `Raises:` block for
-  meaningful refusals. For a dictionary argument, enumerate accepted keys,
-  shapes, units, and meanings.
+  naming each argument and a `Returns:` block, plus a `Raises:` block for each
+  refusal a caller must handle. For a dictionary argument, enumerate accepted
+  keys, shapes, units, and meanings.
 - Short private callback or test double: one sentence, when a formal block would
   only repeat the signature.
 - Define a technical term at first use or replace it with plain language; a file

@@ -106,9 +106,9 @@ the schedule options.
 
 **Fixed buffers, not live geometry.** `W_fd` and `W_df` are model buffers
 because a live geometry call inside `forward()` prevents stable CUDA graph
-capture. A diagonal family — one whose chi-square metric acts independently on
+capture. A diagonal family (one whose chi-square metric acts independently on
 each stored physical coordinate after per-coordinate scaling, without a dense
-basis rotation — already whitens in physical order, so its basis change is the
+basis rotation) already whitens in physical order, so its basis change is the
 identity and both buffers stay `None` rather than holding a square identity
 matrix that would only waste memory.
 
@@ -859,7 +859,7 @@ saved policy, and `PCEEmulator.forward` owns the check before basis evaluation.
 preserve and apply the same saved policy after rebuild.
 
 **Acceptance evidence.** Two far-out inputs on the same side of a boundary must
-both refuse rather than collide. `ai/gates/checks/` owns the remaining cases —
+both refuse rather than collide. `ai/gates/checks/` owns the remaining cases:
 values below `lo` and above `hi` in each dimension, nonfinite bounds, equal
 bounds, shape mismatch, exact endpoints, and a one-unit-in-the-last-place
 tolerance control. Training and rebuilt-artifact inference must agree, and the
@@ -915,7 +915,7 @@ because `a(0) == 0`, but Torch defines its derivative at zero as zero, and the
 gradient reaching the mixing weights is proportional to `a'(0)`, so the zeroed
 layer never moves. ResCNN and TemplateResCNN become wholly inactive. In
 `TRFBlock` the attention output projection can still move, because no
-activation follows it, while the MLP's zeroed final layer stays inactive — so
+activation follows it, while the MLP's zeroed final layer stays inactive, so
 the model improves while lacking the advertised MLP correction. H and tanh
 avoid this because their origin derivatives are nonzero. ReLU's zero derivative
 is intentional and cannot be repaired through numerical stabilization.
@@ -970,7 +970,7 @@ bin counts and invalid positions stay active:
    on the entire rectangle unless a validity mask is reapplied. In a two-block
    witness, cross-bin mixing can write a longer bin's value into an invalid
    column of a shorter bin, and the next spatial kernel can move that value
-   into a valid column — so the gathered correction depends on a nonexistent
+   into a valid column, so the gathered correction depends on a nonexistent
    datum. Ragged single-bin segmentation through `n_tokens` exposes the same
    risk in its final partial token.
 

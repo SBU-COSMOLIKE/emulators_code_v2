@@ -223,7 +223,7 @@ rebuilt, validated, or served safely.
    values. Saving and loading its state must reproduce the same bytes and
    scientific meanings.
 6. Define zero-variance and constant-coordinate behavior explicitly. A
-   relative threshold must remain meaningful when the reference value is zero.
+   relative threshold must remain well defined when the reference value is zero.
 7. Add a loss that exposes a per-sample chi-square-like score so trimming,
    focus, BerHu scheduling, exponential moving averages, and warm-start anchors
    compose through the shared trainer.

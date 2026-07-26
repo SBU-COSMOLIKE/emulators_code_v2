@@ -109,7 +109,7 @@ band = max(1.0e-6, 32 * eps(compute_dtype) * kept_width)
 ```
 
 `kept_width` counts the kept coordinates one row sums over in the chi-square
-contraction — the kept data-vector length for every CosmoLike-style loss —
+contraction, the kept data-vector length for every CosmoLike-style loss,
 so the band grows linearly with that count, not with its square. The dtype is the dtype in which the contraction was computed,
 not a later storage or reporting upcast.
 
@@ -128,8 +128,8 @@ forward-error derivation. Convenience is not a reason to weaken it.
 ### Physical contractions and geometry precision
 
 Network output and packed targets remain in the model compute dtype, normally
-float32. Immediately before a physical Mahalanobis contraction—the
-covariance-weighted squared residual—the residual is cast to the exact dtype
+float32. Immediately before a physical Mahalanobis contraction (the
+covariance-weighted squared residual), the residual is cast to the exact dtype
 and device of the precision tensor. One shared helper owns the cast and
 contraction for PCE ratio, transfer sum or gain,
 plain transfer, factored transfer, and future physical-space losses. A

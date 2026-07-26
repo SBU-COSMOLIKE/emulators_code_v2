@@ -1379,7 +1379,7 @@ fast-forward, before the recovery-file delete — requires either replacing
 `os.replace`, the trusted `git restore`, or `os.unlink` while the routine runs,
 a monkey patch the Python contract prohibits in tests, or planting injection
 hooks inside the production synchronization code, which changes the trusted path
-in order to test it. Timing a kill from outside cannot hit those boundaries
+to test it. Timing a kill from outside cannot hit those boundaries
 reliably. The end states the cuts would produce are already covered: equal bytes
 converge, conflicting bytes fail closed and stay preserved, and the guard binds
 the exact accepted bytes.

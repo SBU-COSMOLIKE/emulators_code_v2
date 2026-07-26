@@ -795,6 +795,16 @@ Look for repeated patterns across the changed section:
 - newly added question-and-answer transitions that do not match the
   established question-led appendix structure.
 
+Check the em dash. Inside a sentence it is the punctuation a reader notices
+first, and a passage that reaches for it repeatedly reads as machine-written
+rhythm rather than as a rule. Use the mark that carries the join: a colon when
+what follows restates the clause before it, a comma for an appositive,
+parentheses for a true aside, a full stop when two statements were welded
+together. The em dash keeps one job, separating a label from its body in a list
+entry, a table cell, a heading, or a defined term, and it stays inside a term
+that is spelled with one, such as `LOW — EDGE CASE`. A changed section with more
+than one sentence-interrupting dash is `NO-GO`.
+
 The Architect explicitly checks these sentence shapes:
 
 1. `This suggests/indicates/demonstrates/highlights that ...`

@@ -3,7 +3,7 @@
 Durable rules for saved emulators, reconstruction, public prediction, Cobaya
 adapters, fine-tuning, and transfer learning.
 
-**This note does not describe how the code works — the code does that.** Read
+**This note does not describe how the code works: the code does that.** Read
 `emulator/results.py::save_emulator` (the write/read reversible map),
 `::rebuild_emulator`, `emulator/inference.py`, `emulator/warmstart.py`,
 `emulator/model_recipe.py`, `emulator/losses/transfer.py`,
@@ -26,7 +26,7 @@ What lives here instead, and nowhere else:
 CPU-normalized) + `<root>.h5` (HDF5, everything needed to interpret them).
 **Pair token** = one fresh random string minted per save, written into both
 members; a mismatched pair refuses, naming both tokens. Proves same-save
-origin only — not a seal on bytes. **Schema** = versioned list and meaning of
+origin only, not a seal on bytes. **Schema** = versioned list and meaning of
 saved fields. **Provenance** = where a thing came from; never proof it is
 right.
 
@@ -87,7 +87,7 @@ behavior:
   schemaless file; schema 1 and 2 reads refuse with a migration instruction. A
   v2 file cannot say which cosmology it was trained under, so it cannot prove
   it belongs to the one it is about to be asked about.
-- An occupied root — complete pair, lone member, or symlink — refuses before
+- An occupied root (complete pair, lone member, or symlink) refuses before
   any temporary file exists and stays byte-for-byte unchanged. A training run
   never replaces an existing emulator, because that would silently change what
   an existing chain's results meant.
@@ -110,7 +110,7 @@ behavior:
 
 **Run tags are labels, not identity.** `<model>[_t<T>]_ntrain<N>` is readable
 shorthand; the scientific description is inside the artifact. Two runs the tag
-cannot distinguish — CMB `TT` versus `EE` at one model and row count — need
+cannot distinguish (CMB `TT` versus `EE` at one model and row count) need
 different `--save` names, and the occupied-root refusal makes a collision
 loud.
 
@@ -119,7 +119,7 @@ loud.
 A recipe records a class name and constructor values. It cannot prove the
 Python behind a stable name never changed. A manually maintained
 `model:...:v1` label would only repeat another name unless every scientific
-change updated it correctly — so it would drift and be believed.
+change updated it correctly, so it would drift and be believed.
 
 Rule: save concrete facts the prediction uses (model recipe, geometry state,
 analytic-law name, composition mode, fixed facts, Git commit) and add no second
@@ -142,7 +142,7 @@ import or construction.
 
 `emulator/model_recipe.py` closes over all six supported classes and validates
 with plain non-executing values, importing no model, geometry, activation,
-normalization, or Torch code — so saved text cannot select a Python class
+normalization, or Torch code, so saved text cannot select a Python class
 before it is checked. Numerical limits stay with the constructor that uses the
 value. The required-field set derives from the class signature plus the
 injected `input_dim`, `output_dim`, `geom`, and factories, so a new constructor
@@ -175,13 +175,13 @@ return finite, different values: Hubble constant `69.68846130371094` becomes
 `0.30848246812820435`. Nothing looks broken. So weight-pair identity and
 recipe-key totality do not replace an explicit composition fact.
 
-Persist a native required enumeration — exactly one of `plain`, `npce`,
-`transfer` — from the executed run, with transfer-refined state as a separate
+Persist a native required enumeration, exactly one of `plain`, `npce`,
+`transfer`, from the executed run, with transfer-refined state as a separate
 native fact. Validate against the exact required and forbidden group set in
 both directions before constructing anything. Schema-2 absence never means
 plain; a presence-only artifact refuses with a migration instruction.
 `config_yaml` may keep its `pce` or `transfer` block, but provenance YAML never
-substitutes for the native fact — one authoritative consumed mode owns runtime
+substitutes for the native fact: one authoritative consumed mode owns runtime
 validation, and YAML is corroboration, not a second inference algorithm.
 
 A census of every conditional HDF5 key found exactly one that silently
@@ -199,7 +199,7 @@ derives and persists native root facts `composition_mode` and
 `transfer_refined`, `pce`, and `transfer`.
 
 Immediately after the scientific schema record is read, rebuild validates the
-four legal rows — plain has neither base group; NPCE has only `pce`; frozen
+four legal rows: plain has neither base group; NPCE has only `pce`; frozen
 transfer has only `transfer_base`; refined transfer additionally has
 `transfer_base/drifted_state` — checking every required and forbidden edge in
 both directions before recipe parsing, geometry or model construction, or
@@ -219,7 +219,7 @@ known-answer prediction.
 <a id="artifact-readback-typed-bool"></a>
 **Artifact readback parses saved attributes by type, not truthiness.** The
 shared typed reader accepts a native Boolean and returns the declared default
-for an absent optional key, refusing every string or integer — including the
+for an absent optional key, refusing every string or integer, including the
 truthy string `"False"`, which would otherwise load drifted transfer weights.
 Refusal names file and schema. A static search of artifact-reading source
 confirms no Boolean field is coerced through truthiness. Real save, forged
@@ -287,7 +287,7 @@ vector.
 
 **Rejected: a shared strict-value validator module.** Each adapter checks its
 own extra_args inline in a few direct lines. An unknown key is refused loudly,
-naming accepted and retired keys. `emulators` must be a nonempty list — exactly
+naming accepted and retired keys. `emulators` must be a nonempty list, exactly
 two entries for BAOSN or MPS. A relative root joins onto `ROOTDIR`. The device
 pick resolves `cpu`/`cuda`/`mps` and falls back toward CPU when the requested
 accelerator is missing. Everything else is read with the plain YAML types the
@@ -307,7 +307,7 @@ length-`2N` vector, or serve an overlapping likelihood block twice.
 every requested spectrum to be one a loaded artifact provides, and the
 requested maximum multipole to sit inside the artifact's stored range. An
 emulator has no accuracy beyond its training grid, so an out-of-range request
-is refused — never truncated or zero-padded.
+is refused, never truncated or zero-padded.
 
 The MPS pair validator enforces the serving tuples
 `pklin/Mpc3/(none|syren_linear)` and `boost/dimensionless/(none|syren_halofit)`;
@@ -330,12 +330,12 @@ describe a finite, invertible transform. A zero scale, nonpositive eigenvalue,
 malformed basis, duplicate destination index, or inconsistent dimension can
 keep every weight shape valid while producing nonfinite values or the wrong
 coordinate map. **Clipping a negative eigenvalue to zero only converts an
-invalid covariance into a later division by zero** — reject it instead, naming
+invalid covariance into a later division by zero**. Reject it instead, naming
 the smallest eigenvalue and the source or bin.
 
 One shared validator runs in `ParamGeometry.from_covmat`, every sample- and
 log-parameter builder, amplitude-factor and warm-start construction,
-`DataVectorGeometry.from_cosmolike`, and every `from_state` rebuild — training
+`DataVectorGeometry.from_cosmolike`, and every `from_state` rebuild, training
 construction and HDF5 rebuild alike, before tensors reach a model. It checks
 shapes, finiteness, unique in-range indices, monotonic finite axes, positive
 scales and eigenvalues, orthonormal bases within a documented tolerance,
@@ -358,7 +358,7 @@ parameter-table shape error: the covariance is scientifically valid once its
 one-dimensional representation is normalized.
 
 So: normalize to an exact two-dimensional square matrix before
-eigendecomposition — a valid scalar covariance becomes `(1, 1)` — while
+eigendecomposition (a valid scalar covariance becomes `(1, 1)`), while
 normalization never rescues malformed input, and the normalized matrix still
 passes every check. Header-name count, covariance width, and center width must
 agree exactly, with all three observed dimensions named on mismatch. Require
@@ -380,7 +380,7 @@ boundary.
 
 Let `f = nextafter(float32(0), float32(1))`, about `1.4013e-45`. For targets
 `[0, 0, f]` the float64 center is about `4.6710e-46` and the population scale
-about `6.6058e-46` — a purely relative check accepts it, and both round to zero
+about `6.6058e-46`, so a purely relative check accepts it, and both round to zero
 in storage. Targets `[0, f, f]` keep a nonzero stored center but still round
 the scale to zero. **The stored representation owns validity, not the pre-cast
 ratio.**
@@ -429,7 +429,7 @@ dictionaries from `diagnostics.py`.
 Rule: every array a public entry point returns that derives from persistent
 model or geometry state is an owned copy, so a caller mutation can never reach
 predictor or geometry state. Newly computed decoder results and model
-predictions have no second owner and are not blanket-copied — the contract is
+predictions have no second owner and are not blanket-copied: the contract is
 behavioral isolation, not defensive copying of everything. Producer mathematics
 is unchanged, and an in-repository consumer that mutates a returned persistent
 array is reported as a violation rather than accommodated.
@@ -439,8 +439,8 @@ calculation state directly (`emul_cmb.get_Cl`,
 `emul_cosmic_shear.get_cosmic_shear`, `emul_mps.get_Pk_grid` with its
 wavenumber, redshift, and power arrays). A destructive first consumer would
 corrupt the provider cache for every later consumer at the same sampled point.
-So the ownership surface is every public exit — predictor returns, public
-diagnostic dictionaries, and every Cobaya getter across the five adapters — and
+So the ownership surface is every public exit: predictor returns, public
+diagnostic dictionaries, and every Cobaya getter across the five adapters, and
 the copy happens at the getter boundary, never by duplicating large arrays
 repeatedly inside `calculate`. Nested structures are handled deliberately: the
 CMB dict and its arrays, the MPS tuple and all three arrays, the cosmic-shear
@@ -469,19 +469,19 @@ or diagnostic return above.
 
 Ignoring `rescale` installs the plain decoder for an artifact needing a
 parameter-dependent inverse transform. The result is finite, correctly shaped,
-and wrong — recorded maximum absolute error `28.236`.
+and wrong, at a recorded maximum absolute error `28.236`.
 
 A schema 3 writer publishes only an explicit native `rescale: "none"`. A
 caller-supplied resolved value must match exactly; missing, mistyped,
 transformed, or contradictory refuses before temporary-file creation.
 `rebuild_emulator` reads it as a required native string before model execution,
-and public inference supports only `"none"` — missing, non-string, unknown,
+and public inference supports only `"none"`; missing, non-string, unknown,
 `"rescaled"`, and `"residual"` refuse with the explanation that the artifact
 does not carry enough information to rebuild the inverse transform.
 `EmulatorPredictor` and all five adapters share that check. Supporting a
-transformed form requires a new schema storing every decoder input —
+transformed form requires a new schema storing every decoder input:
 `cosmo_mid`, `include_amp`, `u_star`, and the theta and effective-redshift
-mapping — and then calling the same training-loss decoder. The `"none"` path
+mapping, and then calling the same training-loss decoder. The `"none"` path
 stays bitwise unchanged.
 
 Evidence: invalid types and values refuse before staging on the write side and
@@ -489,7 +489,7 @@ before model execution through the predictor and every adapter on the read
 side; the `"none"` control is unchanged; a negative control removing the check
 reproduces the `28.236` error and must fail. Future transformed support needs
 separate checks for `"rescaled"` and `"residual"`, each with inputs where the
-inverse transform changes the number — one combined fixture is not enough.
+inverse transform changes the number, so one combined fixture is not enough.
 
 ### Physical parameter domain
 
@@ -499,7 +499,7 @@ finite, correctly shaped answers that are **23.84% wrong at `x = 1` and 90%
 wrong at `x = 10`**. Finiteness and type checks cannot see this.
 
 Every artifact stores admissible physical support by parameter name, taken from
-the declared generator, prior, or cut — never from observed sample extrema. A
+the declared generator, prior, or cut, never from observed sample extrema. A
 non-box constraint stores a named, versioned validator rather than a widened
 bounding box. Save and rebuild validate names, order, bounds, and the
 separation of sampled from fixed coordinates. Where Cobaya exposes the sampler
@@ -547,7 +547,7 @@ gradient.
 
 `train_args.finetune` takes `from` and optional `compile_mode`. The source HDF5
 record owns the architecture; a sibling `model` block is refused. A lower
-learning rate goes through the ordinary `lr` block — one decade below the
+learning rate goes through the ordinary `lr` block; one decade below the
 source with `warmup_epochs >= 3` is the teaching recommendation, because the
 optimizer moments start cold. Provenance: `finetuned_from` and
 `finetune_extra_names`. Mechanics: `emulator/warmstart.py`.
@@ -568,7 +568,7 @@ Scalar fine-tuning needs the same source provenance as every other family: a
 save path recording only model, data, and best-metric attributes cannot
 distinguish a cold run from one whose architecture and initial weights came
 from another artifact. One shared provenance assembler owns the common
-attributes for every driver — scalar adds its family facts and never forks the
+attributes for every driver: scalar adds its family facts and never forks the
 fine-tuning, anchor, or source-provenance logic. A cold run stores no fine-tune
 attributes; a fine-tune run stores the canonical resolved source identity (the
 root and digest actually loaded, never the raw YAML spelling) and the ordered
@@ -584,7 +584,7 @@ validator needs the model recipe, saved rescale value, and resolved data block
 that `rebuild_emulator` does not return.
 
 Both parity paths name and screen the two values produced only after the
-extra-coordinate perturbation — fine-tuning screens `enc_pert` then `out_pert`,
+extra-coordinate perturbation: fine-tuning screens `enc_pert` then `out_pert`,
 transfer screens `enc_pert` then `composed_pert`. All four use
 `_require_parity_finite`, whose shared error names the pipeline side, the
 quantity, and the staged source-row coordinates, and the comparison runs only
@@ -614,8 +614,8 @@ refused); compile prefixes canonicalized at one boundary, or anchoring on the
 underlying eager module, with exact one-to-one parameter coverage; refusal of a
 positive strength matching zero trainable parameters; reporting and validation
 of matched, masked, frozen, and unexpected names; masks under the same
-canonical mapping; and an artifact recording *executed* anchor evidence —
-matched count and effective strength — not configuration alone.
+canonical mapping; and an artifact recording *executed* anchor evidence,
+matched count and effective strength, not configuration alone.
 
 **Update.** With `W` a current trainable parameter, `W_0` its saved source,
 `lr` the learning rate, `lambda` the configured strength, and `mask` the binary
@@ -658,8 +658,8 @@ loss," and a claim-consistency scan covers "anchor," "L2-SP," "penalty," and
 ## Transfer learning (all families except scalar)
 
 Scalar transfer is unsupported as an explicit product boundary, not a
-structural limit. Transfer is judged by **sample efficiency** — accuracy per
-expensive training cosmology — not wall-clock time.
+structural limit. Transfer is judged by **sample efficiency**, accuracy per
+expensive training cosmology, not wall-clock time.
 
 The trained base freezes as a whole; a small parallel correction network
 receives the complete new parameter space and produces `r`. Form `gain` gives
@@ -688,7 +688,7 @@ path reassociates template combination and unwhitening, so it uses a documented
 `1e-6` to `1e-5` tolerance; measured reference difference about `4e-6`.
 
 **Artifact.** `transfer_base` embeds the base recipe, state, both geometries,
-form, and space — never an external reference — and chaining is refused.
+form, and space, never an external reference, and chaining is refused.
 Optional stage-two `transfer.refine` unfreezes the base once, applies per-group
 `base_lr_scale`, and requires an explicit anchor strength including `0.0`. A
 refined artifact keeps pretrained reference weights in `transfer_base` and
@@ -696,7 +696,7 @@ prediction weights in `drifted_state`, and the two states must permit exact
 drift recomputation. Rebuilding selects `state` or `drifted_state` from the
 explicit refinement fact and loads it strictly, so missing, unexpected, or
 wrong-shaped tensors refuse. The file does not hash the embedded mapping again
-or copy that hash into configuration records — a same-shaped value edit inside
+or copy that hash into configuration records: a same-shaped value edit inside
 the HDF5 is user responsibility. The resolved record names the source path
 root, form, and materialized space.
 
@@ -718,8 +718,8 @@ and a GPU environment must rerun both identity gates after a fixture change.
 
 ### Transfer-refine drift measures trainable parameters only
 
-A relative weight-drift metric must exclude persistent non-trainable buffers —
-`pad_idx` layout indices from `ResCNN` and `ResTRF`, fixed PCE buffers — which
+A relative weight-drift metric must exclude persistent non-trainable buffers
+(`pad_idx` layout indices from `ResCNN` and `ResTRF`, fixed PCE buffers), which
 contribute zero to the numerator but inflate the denominator and dilute the
 reported change. Relative drift is also undefined when the reference norm is
 zero: **a moved zero tensor must never be reported as relative drift `0.0`.**
@@ -877,7 +877,7 @@ the subprocess or child, the leg names, and the required capabilities, so the
 blocks below do not repeat them. What each block records instead is **metric**
 (the comparison or refusal that decides success), **evidence** (how the output
 proves each leg), and **capability boundary** (what a missing capability means
-— never a passing result inferred from adjacent output).
+and never a passing result inferred from adjacent output).
 
 ### fixed-facts-schema: the science an emulator was born under
 
@@ -911,7 +911,7 @@ refused, not served.
 <a id="fixed-facts-schema-legacy-version-refused"></a>
 `fixed-facts-schema.legacy-version-refused` requires legacy schema versions 1
 and 2 to refuse with the migration instruction, a block grammar from the future
-to refuse, and the supported version to be accepted — a check that only ever
+to refuse, and the supported version to be accepted: a check that only ever
 refuses proves nothing about the file it must let through. The reader accepts
 exactly the version declared by `emulator/fixed_facts.py`.
 
@@ -925,7 +925,7 @@ coordinate and both values. Allowed, the two halves of the record would answer
 `fixed-facts-schema.parameter-order-enforced` requires a whitening geometry
 whose parameter order is a permutation of the record's to be refused, printing
 both orders. Counting names, or comparing them as a set, would let a
-permutation through — and a permutation silently pairs every incoming value
+permutation through, and a permutation silently pairs every incoming value
 with the wrong parameter's column, so predictions are confidently wrong and
 nothing about the numbers looks unusual.
 
@@ -942,7 +942,7 @@ to by its facts, so a chain digest would only duplicate both.)
 `fixed-facts-schema.vertical-law-enforced` is the basic fixed-value check: when
 the artifact and Cobaya's constant-parameter mapping expose a concrete value
 under the same name, those values must agree, and the error names both plus the
-corrective action. Missing, renamed, derived, and `n/a` values stay unchecked —
+corrective action. Missing, renamed, derived, and `n/a` values stay unchecked:
 Cobaya permits arbitrary reparameterizations, so a name comparison cannot prove
 two cosmologies equivalent, and a custom parameterization stays the user's
 responsibility.
@@ -992,8 +992,8 @@ only NumPy and a small model-shaped object.
 configuration from the artifacts: the parameters it requires of the chain are
 the emulator's own stored geometry names, and the vector it serves is the
 section the stored geometry declares (`dv_return: 3x2pt` scatters into the full
-layout with zeros off the mask). A wrong-kind artifact — a scalar emulator,
-which returns a `{name: value}` dict rather than a vector — is refused by name,
+layout with zeros off the mask). A wrong-kind artifact (a scalar emulator,
+which returns a `{name: value}` dict rather than a vector) is refused by name,
 pointing at the adapter it belongs in. This CPU-capable identity leg is
 required because the separate `cobaya-adapter` integration gate needs CosmoLike
 and a GPU; neither gate may claim the other's capability boundary or evidence.
@@ -1007,7 +1007,7 @@ named artifact constants with directly named model constants, treating an
 unavailable or renamed value as inconclusive rather than a refusal; and before
 encoding each point, `predict` refuses values outside stored support and
 records with undeclared support. Each assertion checks law-specific error text,
-so an unrelated `ValueError` — including one from `float("n/a")` — cannot
+so an unrelated `ValueError`, including one from `float("n/a")`, cannot
 satisfy it.
 
 ## Acceptance evidence: geometry module paths
@@ -1163,8 +1163,8 @@ to be exactly zero in weight and bias, every other tensor untouched.
 `transfer-identity.artifact-lifecycle-round-trip` requires a rebuilt transfer
 artifact to return the embedded base with its form and space, its composed
 prediction to equal the in-memory composition exactly,
-`EmulatorPredictor.predict` to agree to `1e-6`, and chaining — a transfer used
-as a base — to be refused.
+`EmulatorPredictor.predict` to agree to `1e-6`, and chaining (a transfer used
+as a base) to be refused.
 
 <a id="transfer-identity-refined-base-lifecycle"></a>
 `transfer-identity.refined-base-lifecycle` requires a refined artifact's
@@ -1260,14 +1260,14 @@ the schema-version authority.
 <a id="save-rebuild-drift-old-head-artifact-refusal"></a>
 `save-rebuild-drift.old-head-artifact-refusal` deletes the persisted bin split
 from a head save (a pre-persistence artifact) and requires the rebuild to raise
-a `KeyError` naming the bin-split persistence — never to re-derive the split.
+a `KeyError` naming the bin-split persistence, never to re-derive the split.
 
 <a id="compile-recipe-evidence"></a>
 **compile-recipe — a CUDA rebuild consumes the compile mode persisted in its
 artifact.**
 
 - fixture design: the `case-a` and `case-b` schema-3 scalar artifact pairs
-  are opaque — neither the paths nor nearby labels encode a mode — so the leg
+  are opaque (neither the paths nor nearby labels encode a mode), so the leg
   cannot pass by reading its own fixture names.
 - registration: `ai/gates/board.py` owns the manifest, the
   `ai/gates/checks/compile_recipe.py` child, and the two leg names, ordered
