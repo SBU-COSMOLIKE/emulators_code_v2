@@ -908,13 +908,12 @@ runs `initialize` or `seal`, or edits `ai/tools/backlog_guard.py`, the
 fingerprint record, or its `.backlog-guard.lock` write lock.
 
 The Implementer never opens the backlog at all, in any mode. Only the
-Architect, who writes it, and the Red Team, who audits the Architect, read it.
-That is deliberate: the backlog is a private planning ledger in Architect
-shorthand holding ideas considered and dropped alongside scheduled work, so an
-Implementer reading it would collect instructions nobody sent. The dispatched
-directive is the Implementer's whole assignment and the notes it names are the
-supporting material; if the directive is missing something, the Implementer
-returns a blocker instead of going to look for it.
+Architect, who writes it, and the Red Team, who audits the Architect, read it:
+it is a private planning ledger holding dropped ideas beside scheduled work, so
+an Implementer reading it would collect instructions nobody sent. The
+dispatched directive is the Implementer's whole assignment and the notes it
+names are the supporting material; if the directive is missing something, the
+Implementer returns a blocker instead of going to look for it.
 
 The backlog stays in Git; its fingerprint record and lock stay outside Git. An
 incoming backlog package is inspected in its separate import folder and never
@@ -1036,9 +1035,7 @@ slot from the shared positive cycle limit. Active tickets, accepted tickets
 waiting for a Red Team return, and completed returns saved for delivery all
 consume that limit. With no slot left, the next request stays byte-for-byte at
 the mailbox root; a restart restores the durable count before admitting more
-work. This stops `--cycle 1` from starting ticket B while ticket A waits for
-its Red Team return, and stops concurrent watch attempts from each spending the
-full limit.
+work.
 
 Only the Architect decides whether an accepted change alters a permanent
 general property. Permanent notes are never edited by an Implementer or Red
@@ -1137,8 +1134,8 @@ does not change the protected target.
 
 Protecting the complete history of that branch is a paramount goal and a hard
 Architect rule. No AI role, subagent, daemon, recovery path, suggested manual
-command, or application programming interface (API) call may force-push or
-replace its history. This prohibition includes:
+command, or API call may force-push or replace its history. This prohibition
+includes:
 
 - `git push --force`, `git push -f`, and `git push --force-with-lease`;
 - a push refspec beginning with `+`;
@@ -1264,16 +1261,15 @@ those identity checks.
 The lightweight development machine may provide only Python, NumPy, and the
 standard library. Evidence there is compilation, AST censuses,
 docstring-stripped AST comparison, and known-answer arithmetic probes against
-the real function body where possible. Torch, CosmoLike, Hierarchical Data
-Format version 5 (HDF5), YAML, SciPy, Matplotlib, and accelerator evidence run
-in the configured Cocoa environment.
+the real function body where possible. Torch, CosmoLike, HDF5, YAML, SciPy,
+Matplotlib, and accelerator evidence run in the configured Cocoa environment.
 
-Apple Metal Performance Shaders (MPS) does not support device float64 and uses
-float16 autocast. CUDA provides the required compiled and accelerator checks;
-set `CUDA_DEVICE_ORDER` and `CUDA_VISIBLE_DEVICES` before process startup. The
-production system uses task-parallel processes, not distributed data parallel
-(DDP) or threads: spawn, not fork; one device selection per worker; no private
-copies of the full random-access memory (RAM) payload in parallel paths;
+Apple Metal Performance Shaders (MPS, never the matter-power spectrum here)
+does not support device float64 and uses float16 autocast. CUDA provides the
+required compiled and accelerator checks; set `CUDA_DEVICE_ORDER` and
+`CUDA_VISIBLE_DEVICES` before process startup. The production system uses
+task-parallel processes, not DDP or threads: spawn, not fork; one device
+selection per worker; no private copies of the full payload in parallel paths;
 longest-processing-time assignment; and retained Queue/Lock references until
 every child joins.
 
@@ -1301,8 +1297,8 @@ environment procedure.
 - Carve out a physical exception on the physical axis, not on an unrelated
   configuration label.
 - When a hypothesis about a third-party mechanism fails on the real machine,
-  switch to its documented application programming interface (API) and add a
-  tripwire capable of falsifying the replacement assumption.
+  switch to its documented API and add a tripwire capable of falsifying the
+  replacement assumption.
 - A search supporting "no match exists" must be untruncated. Count or inspect
   all matches, search the synonym set, and record the pattern and scope.
 
@@ -1357,9 +1353,8 @@ remain undecayed unless the allowlist is deliberately expanded.
 Geometry encode or whiten operations divide by scale or sigma; decode or
 unwhiten multiply. Errors and comments must name the correct direction.
 
-Automatic mixed precision (AMP) runs selected operations at lower numeric
-precision to reduce accelerator cost. AMP documentation distinguishes float16
-on MPS from bfloat16 on CUDA or CPU.
+Automatic mixed-precision documentation distinguishes float16 on MPS from
+bfloat16 on CUDA or CPU.
 
 ## Teaching the experiment lifecycle
 
@@ -1456,13 +1451,6 @@ existing-document census, README link, source and compiled deliverables, build
 command, page-render command, and page-by-page visual checks. It also requires
 comparison with current code so a polished explanation cannot preserve an
 obsolete command or behavior.
-
-Useful focused guides often include an executive summary, a small mental model,
-separate definitions for easily confused objects, commands explained one at a
-time, a complete worked example, important refusal behavior, alternatives and
-why they are not used, safety properties, an implementation map, and a compact
-translation table. This is a teaching pattern, not a fixed page template:
-select only the parts that answer the named reader question.
 
 Feature-specific documentation is a **Low new-functionality ticket** by
 default. It becomes **High** only when the user explicitly requests High

@@ -6,21 +6,16 @@ that owns the behavior under study.
 
 The permanent notes describe current rules, scientific assumptions, software
 interfaces, failure boundaries, and evidence that remains useful after one
-bounded work request, called a ticket, closes.
-The permanent notes are not a development diary. Git, the repository's
-version-control system, stores old
-wording and superseded designs. The tracked backlog stores unfinished work.
+ticket closes. The permanent notes are not a development diary: Git stores old
+wording and superseded designs, and the tracked backlog stores unfinished work.
 
-`role-contract.yaml` is a separate protected machine contract. It records
-stable role permissions, timing limits, and landing rules for tool validation.
-It is not a twelfth permanent Markdown note. Only the Architect may edit it,
-through protected-policy administration; the Implementer and Red Team may
-only read it.
-
-`implementer-failure-modes.yaml` is a protected reference catalog beside the
-contract. It names common implementation failures and points to responses the
-tools already enforce. It adds no new workflow state. Only the Architect may
-edit it through the same protected-policy administration path.
+`role-contract.yaml` is a separate protected machine contract recording stable
+role permissions, timing limits, and landing rules for tool validation, not a
+twelfth permanent Markdown note. `implementer-failure-modes.yaml` is a
+protected reference catalog beside it, naming common implementation failures
+and pointing to responses the tools already enforce; it adds no new workflow
+state. Only the Architect may edit either, through protected-policy
+administration; the Implementer and Red Team may only read them.
 
 The operating workflow is explained in [`ai/README.md`](../README.md).
 
@@ -96,16 +91,14 @@ The final permanent-note change receives GO only when all of these checks pass:
   durable fact. A SHA-256 guard proves which bytes changed; it does not make a
   broad rewrite acceptable.
 - The text contains no development date, policy-provenance timestamp, named
-  person, gendered pronoun, or personal preference attributed to a particular
-  user. A date is allowed only when it is part of scientific, release,
-  citation, input, or public-interface subject matter and the review records
-  why removing it would make the statement incomplete or false. The anti-AI
-  contract may quote a first- or second-person phrase only to prohibit that
-  phrase.
-- The text contains no ordinal audit-wave labels, role-verdict labels,
-  temporary review status, personal-awake narratives, numbered review-run
-  history used as a development diary, or source-control archaeology
-  terminology.
+  person, gendered pronoun, personal preference attributed to a particular
+  user, audit-wave or role-verdict label, temporary review status, numbered
+  review-run history used as a development diary, or source-control
+  archaeology. A date is allowed only when it is part of
+  scientific, release, citation, input, or public-interface subject matter and
+  the review records why removing it would make the statement incomplete or
+  false. The anti-AI contract may quote a first- or second-person phrase only
+  to prohibit that phrase.
 - Related sections describe one coherent current system. They contain no
   dated correction, `hard user rule`, generic-user attribution, review round,
   or later paragraph that repairs an older policy paragraph left in place.
