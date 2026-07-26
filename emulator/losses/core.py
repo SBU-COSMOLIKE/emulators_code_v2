@@ -9,7 +9,7 @@ r^T Cinv r per sample) and the training loss on it. CosmolikeChi2 is the
 plain loss (trimming, a focal hardness weight, one that up-weights the
 worst-fit samples, and the sqrt / pseudo-Huber
 / berhu / berhu_capped transform ladder). RescaledChi2 and ResidualBaseChi2
-are the two analytic-R variants (R divides the net output, versus R moves
+are the two analytic-R variants (R divides the network output, versus R moves
 only the baseline). anneal_value is the per-epoch schedule shared by four knobs
 (trim, focus, the berhu sqrt-blend, and the EMA horizon); make_chi2 builds
 the right loss from a geometry and a rescale mode.
@@ -879,10 +879,10 @@ class ResidualBaseChi2(RescaledChi2):
   the network's reconstruction d_pred (u = unwhiten of the net
   output, c = center):
     A (RescaledChi2):  d_pred = (u + c) / R , R divides the
-        net output, so the chi2 gradient carries diag(1/R), a
+        network output, so the chi2 gradient carries diag(1/R), a
         per-cosmology conditioning factor.
     B (this class):    d_pred =  u + c / R  , R moves only the
-        constant baseline c -> c/R; the net output enters at unit
+        constant baseline c -> c/R; the network output enters at unit
         gain, so the chi2 is plain (no /R, no conditioning
         factor).
   So B puts R in the target, never in the loss: it overrides
@@ -916,7 +916,7 @@ class ResidualBaseChi2(RescaledChi2):
   def decode(self, y, params_whitened):
     """Network output -> physical dv (baseline center/R added back).
 
-    The net output enters at unit gain (no /R), unlike the A form.
+    The network output enters at unit gain (no /R), unlike the A form.
 
     Arguments:
       y               = (B, out_dim) whitened network output.
@@ -966,11 +966,11 @@ def make_chi2(geom, rescale="none", param_geometry=None,
 
     rescale = "none"     -> plain CosmolikeChi2 (no R).
               "rescaled" -> RescaledChi2 (v1, "A" form): R divides
-                            the net output, so the chi2 gradient
+                            the network output, so the chi2 gradient
                             carries a per-cosmology diag(1/R)
                             conditioning factor.
               "residual" -> ResidualBaseChi2 (v2, "B" form): R
-                            moves only the baseline; the net enters
+                            moves only the baseline; the network enters
                             at unit gain and the chi2 is plain
                             (no /R), clean prior isolation.
 
