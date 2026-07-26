@@ -467,7 +467,8 @@ not the Implementer, prepares and restores ticket worktrees.
    others to you. Implement the directive and make the unit pass its defined
    validation commands. Do not challenge the design, hunt for bugs beyond
    those checks, or harden code the directive did not ask you to touch. That
-   separation is what keeps you efficient. Two boundaries stay exactly where
+   separation is why the unit ends when the named checks pass, rather than
+   when you run out of things to improve. Two boundaries stay exactly where
    they are: a FACTUAL error in the handoff's premise is reported with proof
    before proceeding (that is evidence, not a design challenge, by the
    aid-prefix precedent), and a defect you notice in passing is one line in

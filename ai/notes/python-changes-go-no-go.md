@@ -61,8 +61,9 @@ sites unless the user explicitly requests that search.
 
 ### Keep the repair proportional to the problem
 
-A narrow bug normally needs a narrow production-code change. Robustness is
-useful, but it does not justify building a new framework around one failure.
+A narrow bug normally needs a narrow production-code change. Handling more
+cases is useful, but it does not justify building a new framework around one
+failure.
 
 The Architect gives NO-GO when a candidate adds a registry, policy layer,
 general validation system, or other large abstraction where a short direct
