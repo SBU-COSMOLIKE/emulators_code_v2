@@ -20,18 +20,17 @@ transform** is the fixed matrix between two coordinate representations. A
 head** the smaller branch adding a structured residual to it. A **bin** is one
 physically meaningful group of adjacent output coordinates.
 
-A **token** is the feature vector for one bin or contiguous coordinate segment;
-an **attention window** is the segment assigned to one token. **Permutation
-equivariance** means reordering tokens reorders the outputs instead of changing
-their values. FiLM identity initialization starts at `gamma = 1`, `beta = 0`.
+A **token** is the feature vector for one bin or contiguous coordinate segment.
+**Permutation equivariance** means reordering tokens reorders the outputs
+instead of changing their values. FiLM identity initialization starts at
+`gamma = 1`, `beta = 0`.
 
 A **registry** maps accepted configuration names to the classes or functions
 that own them. A **capability flag** is an explicit class property telling
-shared code which geometry, data, or head behavior the class supports. A driver
-**fileroot** is the configured path stem shared by one run's output files.
-`n(z)` is a galaxy redshift distribution. CosmoLike produces the cosmic-shear
-data vectors. The **board runner** executes registered gates and records their
-raw results.
+shared code which geometry, data, or head behavior the class supports. `n(z)`
+is a galaxy redshift distribution. CosmoLike produces the cosmic-shear data
+vectors. The **board runner** executes registered gates and records their raw
+results.
 
 ## How to use this note
 

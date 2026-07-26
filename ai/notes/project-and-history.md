@@ -19,8 +19,7 @@ difference or ratio a correction must learn, and the **correction head** the
 trainable part predicting it.
 
 A **parameter-name sidecar** records the name and order of each table column.
-A **chain root** is the common path stem for a set of sampling files, and the
-**path owner** the one component responsible for resolving it. A **class
+A **chain root** is the common path stem for a set of sampling files. A **class
 guard** checks the saved family before reading family-specific fields. A
 **predictor** rebuilds a saved artifact and returns its scientific output; an
 **adapter** translates that output into the names, shapes, and units another
@@ -30,21 +29,15 @@ documented for that family.
 **Sampling temperature** is a factor that widens the parameter distribution
 used to create training examples; it does not describe physical heat.
 
-A geometry **round-trips its state** when saving and then loading it
-reproduces the same stored values and meanings. A loss's **physical
-contraction** is the documented operation combining a prediction residual with
-covariance or precision information to produce one score per sample; keeping it
-in one owner stops training and diagnostics from giving the same error two
-scientific meanings.
+A loss's **physical contraction** is the documented operation combining a
+prediction residual with covariance or precision information to produce one
+score per sample; keeping it in one owner stops training and diagnostics from
+giving the same error two scientific meanings.
 
-**Multi-device execution** assigns work to more than one accelerator. **GPU
-packing** lets several workers share one graphics processor under explicit
-memory limits. A **journal** is the saved progress record used to restart a
-study. A numerical **data type (dtype)** states how values are represented,
-such as float32 or float64. In a test, a **control** is the valid case that
-must pass, a **mutation** deliberately restores forbidden behavior and must
-fail, and a **witness** is the concrete input and observation that distinguish
-those outcomes.
+**GPU packing** lets several workers share one graphics processor under
+explicit memory limits. A **journal** is the saved progress record used to
+restart a study. A **witness** is the concrete input and observation that
+separate a passing control from a failing mutation.
 
 ## Project purpose
 

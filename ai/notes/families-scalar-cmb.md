@@ -45,13 +45,8 @@ microkelvin-squared conversion using the saved FIRAS temperature. **Raw** CMB
 spectra are the stored `C_l` values at multipole `l` before multiplication by
 the requested multipole plotting factor.
 
-CAMB (Code for Anisotropies in the Microwave Background) is the external
-cosmology solver used for reference spectra. `LMAX` is the largest multipole
-included by a check or saved table. An application programming interface (API)
-is the documented set of calls through which one module uses another. Positive
-semidefinite (PSD) means that no vector gives a negative quadratic form. Full
-width at half maximum (FWHM) is the beam-width measure used in covariance
-production.
+CAMB is the external cosmology solver used for reference spectra. `LMAX` is the
+largest multipole included by a check or saved table.
 
 ## Ownership map
 

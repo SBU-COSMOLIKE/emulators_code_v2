@@ -940,6 +940,18 @@ two versions.
 
 The eleven permanent notes explain durable project rules. The Architect,
 Implementer, and Red Team role files define the three roles.
+
+Those notes and role files read as terse next to this guide, and that is
+deliberate. Only the three AI roles read them, and each role reloads them at
+the start of every turn, so a sentence that changes no decision is paid for
+again on every turn and buys nothing. They therefore carry rules, refusals,
+exact formats, and the words this repository gives a meaning you could not
+guess — `law space`, `catch power`, `staged-selection identity` — and nothing
+else. Ordinary programming, Git, and machine-learning vocabulary is left
+undefined there because the readers already know it. Teaching material for
+people belongs here, in this guide, where it is read once by someone who
+wanted to learn.
+
 `ai/notes/role-contract.yaml` is
 the machine-readable record for configurable role-system settings. The
 reader keeps role identities, saved worktree layout, trusted file locations,
