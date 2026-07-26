@@ -27,8 +27,8 @@ Applies to `emulator/`, public drivers, checks, and support scripts.
   parenthesis when practical; otherwise one consistent two-space hanging
   indent, one item per line.
 - Pass arguments by name whenever the callee permits. Keep genuinely
-  positional interfaces positional — mathematical operands, plotting
-  coordinates, `model(x)`, `*args` forwarding — and add a naming comment when
+  positional interfaces positional (mathematical operands, plotting
+  coordinates, `model(x)`, `*args` forwarding) and add a naming comment when
   a positional tensor is not obvious.
 - Explicit loops outside performance-critical code; vectorized NumPy or Torch
   operations stay inside compiled, forward, or batch hot paths. Find
@@ -119,7 +119,7 @@ concept before using it. Every explained YAML concept carries a short fenced
 example copied from the real schema. Point to one authoritative explanation
 instead of restating it.
 
-README files describe the current library — no development dates, review
+README files describe the current library: no development dates, review
 rounds, queue state, landing state, abandoned formulas, or biographical
 commentary. A current limitation may remain only as:
 
@@ -171,8 +171,8 @@ choice, a widespread search, corrections, and changed scope all go there.
 The Architect decides which enabled role acts next and writes the complete
 downstream instruction. The Implementer and Red Team do not accept direct user
 substance; a direct request reaching either is returned to the Architect as a
-blocker. A human may copy a generated handoff unchanged — transport, not a new
-user instruction.
+blocker. A human may copy a generated handoff unchanged. That is transport, not a
+new user instruction.
 
 The default topology is Architect, Implementer, and Red Team. A watch may omit
 Red Team with `--skip-redteam` or `--no-red-team`, which never weakens
@@ -508,8 +508,8 @@ finding never omits counterevidence because it weakens the argument.
 This transfer never lowers evidence standards or makes the note authoritative.
 
 Receipt and assessment happen at different times. On receipt the Architect does
-not reproduce or substantively analyze a `NEW TICKET` or `REOPEN` finding —
-bookkeeping only: create or restore the ticket, apply the reopen-count and
+not reproduce or substantively analyze a `NEW TICKET` or `REOPEN` finding.
+Bookkeeping only: create or restore the ticket, apply the reopen-count and
 automatic-severity mechanics, preserve the note path, acknowledge, return to
 current work. The backlog technical record includes this exact line:
 
@@ -602,7 +602,7 @@ on a reopening accepts the evidence and leaves the ticket open for repair;
 Architect NO-GO closes it with a reason and changes the state permanently to
 `barred by Architect NO-GO`. Red Team may not reopen a barred ticket; a
 different defect must use `Backlog action: NEW TICKET`. A prohibited later
-`REOPEN` changes nothing — not the ticket, its count, or its state.
+`REOPEN` changes nothing: not the ticket, its count, or its state.
 
 Ordinary acceptance: the Architect assigns a ticket, the Implementer repairs
 it, the Architect audits, and Architect `GO` authorizes the parent daemon to
@@ -722,7 +722,7 @@ order; within High, user-designated High new functionality precedes High bug
 fixes; within any remaining group preserve admission order unless a recorded
 prerequisite or blocker explains why the next ticket is worked first.
 
-`unique-anchor` uses only lowercase ASCII letters, digits, and hyphens — for
+`unique-anchor` uses only lowercase ASCII letters, digits, and hyphens, for
 example `cmb-progress-loses-multipole-labels`. It describes the problem, is
 unique in the file, and is not merely an internal ticket number. The link
 target and the `<a id="...">` value must match byte for byte. Each index link
@@ -1046,7 +1046,7 @@ Team. Routine milestones do not create permanent-note churn.
 Protected policy files: the eleven permanent notes,
 `ai/notes/role-contract.yaml`, `.claude/FABLE_ROLE.md`, and
 `.codex/REDTEAM_ROLE.md`. The YAML is the machine-readable source of truth for
-stable role permissions, timing limits, and landing rules — not a twelfth
+stable role permissions, timing limits, and landing rules, not a twelfth
 permanent Markdown note. Only the Architect may change these files, through
 protected-policy administration; Implementer and Red Team access is read-only.
 
@@ -1174,7 +1174,7 @@ manual session; candidate, landing, and permanent-note commits are examples,
 not the complete scope. A message is `GO` only when a reader understands the
 saved change without opening the diff.
 
-The subject names the concrete saved behavior in plain language — for example
+The subject names the concrete saved behavior in plain language, for example
 `Keep each calculation result with its assigned dataset row`. A subject carries
 no internal ticket number, date, wave name, role label, branch name, undefined
 acronym, schema number, or project jargon. `Update files`, `Land unit 8`, and
@@ -1304,7 +1304,7 @@ environment procedure.
 
 ### Tests, gates, and the validation board
 
-A **test** asks one narrow question — for example, a CMB progress-file test
+A **test** asks one narrow question. For example, a CMB progress-file test
 shifts one saved multipole coordinate and checks that loading refuses the
 mismatch before reading spectra.
 

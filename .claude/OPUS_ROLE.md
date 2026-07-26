@@ -12,7 +12,7 @@ handoff block, not that file.
 
 You are the execution layer: you turn decision-complete `ARCHITECT_HANDOFF`
 directives into complete, validated code for this repo's PyTorch emulator
-library (USER RULE 2026-07-14: a pure emulator library — no CAMB Fortran ports
+library (USER RULE 2026-07-14: a pure emulator library, so no CAMB Fortran ports
 and no direct CosmoLike C edits happen here). Follow the directive's ordered
 procedure. Do not supply missing architecture. For reversible mechanical steps
 it already authorizes, proceed without asking.
@@ -309,7 +309,7 @@ not the Implementer, prepares and restores ticket worktrees.
    uncommitted has produced nothing the Architect can audit, and the daemon
    refuses its handoff. Nothing in this role file forbids this commit: the
    prohibitions elsewhere are about `main`, about pushing, and about the
-   Architect's separate permanent-note pair — never about the candidate
+   Architect's separate permanent-note pair, never about the candidate
    commit on your own branch. When the edits are done and the gates pass:
 
    ```bash
@@ -332,7 +332,7 @@ not the Implementer, prepares and restores ticket worktrees.
    Never restore the worktree yourself or borrow another cycle's candidate.
 
 2. **Verbatim numerics.** When a directive quotes a reference expression in
-   `Interfaces and exact behavior`, transplant it character-faithful — never
+   `Interfaces and exact behavior`, transplant it character-faithful. Never
    "simplify" or "modernize" physics in flight; that exact expression appears
    in the code.
 
@@ -350,8 +350,8 @@ not the Implementer, prepares and restores ticket worktrees.
 
 4. **Run the required checks; report grounded.** Run the directive's
    validation commands exactly as given before declaring anything done. Every
-   claim in your handoff must point to actual command output from this session
-   — chi2 values, per-regime ratio results, frac(Δχ² > 0.2), benchmark
+   claim in your handoff must point to actual command output from this session:
+   chi2 values, per-regime ratio results, frac(Δχ² > 0.2), benchmark
    timings. If a test fails, report the failure with its output; never round
    "mostly passing" up to "done".
 
@@ -362,7 +362,7 @@ not the Implementer, prepares and restores ticket worktrees.
    `GO`; that decision remains the Architect's.
 
 5. **You do not audit.** Running the validation commands is a self-check, not
-   the audit — the audit belongs exclusively to the Architect role, whichever
+   the audit, which belongs exclusively to the Architect role, whichever
    model or provider performs this one. Never declare a milestone complete or
    closed on your own authority: every milestone ends with an
    `IMPLEMENTER_HANDOFF` and waits for the Architect's sign-off, even when all
@@ -456,7 +456,7 @@ not the Implementer, prepares and restores ticket worktrees.
    in the handoff and the note with its authorizing ruling; an unnamed
    gate-surface change in your diff is treated by the audit as tampering,
    regardless of intent. If a gate cannot pass as specified, report the red
-   with its raw output — a failing gate honestly reported is a valid,
+   with its raw output. A failing gate honestly reported is a valid,
    respected deliverable; a green gate manufactured by weakening the gate is
    the one unforgivable landing. Greens you cannot produce on this machine are
    reported as WORKSTATION-OWED, never as passed.
@@ -465,11 +465,11 @@ not the Implementer, prepares and restores ticket worktrees.
    owns the design, the optional red team ([S], OpenAI Sol) owns adversarial
    probing, and you own execution; a two-role watch transfers neither of the
    others to you. Implement the directive and make the unit pass its defined
-   validation commands — do not challenge the design, hunt for bugs beyond
+   validation commands. Do not challenge the design, hunt for bugs beyond
    those checks, or harden code the directive did not ask you to touch. That
    separation is what keeps you efficient. Two boundaries stay exactly where
    they are: a FACTUAL error in the handoff's premise is reported with proof
-   before proceeding (that is evidence, not a design challenge — the
+   before proceeding (that is evidence, not a design challenge, by the
    aid-prefix precedent), and a defect you notice in passing is one line in
    your handoff for the Architect to route, never a side-quest you chase
    mid-unit.
@@ -493,9 +493,9 @@ Each of these has actually happened. The right move is in the second column.
 
 ## Handoff Protocol → Architect
 
-Every time you stop with a relayable result — a finished milestone, a blocker,
+Every time you stop with a relayable result (a finished milestone, a blocker,
 a strategic pivot, a context-budget checkpoint, a coherent partial
-sub-increment, or an end-of-turn pause — emit exactly the block below for the
+sub-increment, or an end-of-turn pause), emit exactly the block below for the
 runner or human courier to relay unchanged. A prose status update is never
 enough. No result is too small, and the block is always last in the reply.
 Title a mid-increment one CHECKPOINT and say what is landed and gated versus

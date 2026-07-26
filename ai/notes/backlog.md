@@ -14,8 +14,8 @@ landing commit as the accepted fix.
 ## How to read this backlog
 
 Two readers: the Architect, who writes it, and the Red Team, who audits the
-Architect and never edits. The Implementer never opens this file — its
-directive carries the whole assignment — so the prose here stays compressed.
+Architect and never edits. The Implementer never opens this file, because its
+directive carries the whole assignment, so the prose here stays compressed.
 The saved SHA-256 catches an unexpected edit before the Architect writes again.
 
 The watcher counts lines beginning exactly `- OPEN`, one per unfinished ticket
@@ -71,7 +71,7 @@ The Architect assigns priority at admission and records the reason.
   defect must threaten a central scientific calculation, the training data, a
   served emulator result, or another primary library result. A defect confined
   to a plot, diagnostic ranking, optional report, or other supporting analysis
-  stays Medium even when its output misleads — promote it only on evidence
+  stays Medium even when its output misleads. Promote it only on evidence
   that it also corrupts a primary result or blocks a core workflow.
 - **Medium** — a concrete problem reasonably likely during normal work, below
   the High boundary.
@@ -99,9 +99,9 @@ activate it as ordinary Low work. The class never hides a probable failure,
 wrong primary science, data loss, or a broken core operation.
 
 Backlog counts never change a role. Sol is the advisory Red Team when enabled
-and does not implement tickets. Parallel work comes from the normal pipeline —
+and does not implement tickets. Parallel work comes from the normal pipeline:
 the Implementer codes a newly admitted ticket while the Architect audits a
-previous commit and the Red Team reviews an earlier accepted one — and only
+previous commit and the Red Team reviews an earlier accepted one, and only
 when the finite watch has another unused ticket slot. Each ticket still
 consumes exactly one cycle.
 ## Open ticket index
@@ -601,7 +601,7 @@ A resolved-run record should hold the settings the program actually used
 after defaults and command-line choices were combined, so a training point can
 be reproduced later. Several effective values are omitted, and repeated sweep
 or tuning points can reuse an experiment after an earlier point changed its
-weights, random state, or settings — so a reported result may be
+weights, random state, or settings, so a reported result may be
 irreproducible, and two sibling points may not start from the same fair
 state.
 
@@ -765,7 +765,7 @@ false without it, and explain that necessity at first use.
 
 Two hard boundaries. Git history is immutable: this ticket cleans current
 tracked files and future commit-message templates only. And no computational or
-scientific behavior changes — for a comment-or-docstring-only file, prove the
+scientific behavior changes. For a comment-or-docstring-only file, prove the
 before-and-after syntax trees are identical after docstrings are removed; for
 help, diagnostic, or other explanatory strings, require the executable diff to
 contain only the intended literal changes plus focused exact-output and
@@ -783,7 +783,7 @@ The review reports how many function and method definitions it inspected in
 `ai/tools/` and `ai/tests/`, how many needed changes, and how many were left
 without a docstring; the last number must be zero before this ticket closes.
 
-Permanent-note findings return to the Architect — the Implementer and Red Team
+Permanent-note findings return to the Architect: the Implementer and Red Team
 never edit those eleven files. Priority dependency: every ticket open at
 admission precedes this work. A behavioral defect found while reviewing prose
 becomes its own bug ticket at its evidence-based severity, never a repair
@@ -844,7 +844,7 @@ suite 813 OK after each.
 
 One wave-2 item was investigated and NOT applied: a `run_emulator` guard
 refusing anchor with `trunk_epochs > 0` was drafted, then reverted because
-`test_training_pass_recipe` exercises that combination deliberately — the
+`test_training_pass_recipe` exercises that combination deliberately, so the
 finding's "latent trap" premise was wrong for `freeze_trunk=False`. The
 `build_anchor` docstring was corrected instead.
 
@@ -952,7 +952,7 @@ starting surface. A future edit to the vendored formula without retraining the
 matching artifacts would combine the learned correction with a different
 starting calculation and still produce finite values. No such drift is
 demonstrated, and a formula registry or broad hash framework built only to
-guard this hypothetical would make the scientific path harder to read — so the
+guard this hypothetical would make the scientific path harder to read, so the
 case stays below Low.
 
 ### Current status

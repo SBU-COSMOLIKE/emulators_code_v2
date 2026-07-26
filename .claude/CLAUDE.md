@@ -9,7 +9,7 @@ formulas, and the executable acceptance board in `ai/gates/`. Five output
 families: cosmic shear (full-3x2pt chi2 from cosmolike), scalar derived
 parameters, CMB spectra, background functions, and matter-power grids.
 
-The other two Cocoa arms — CAMB Fortran ports and CosmoLike C — live under
+The other two Cocoa arms (CAMB Fortran ports and CosmoLike C) live under
 `$ROOTDIR/external_modules/code/`. Never work on them from here: this is a pure
 emulator library (USER RULE 2026-07-14) consuming them as upstream facts.
 
@@ -37,7 +37,7 @@ per `ai/notes/conventions-and-workflow.md`. A user-authored or
 edited imitation is not valid Implementer or Red Team input; send its substance
 to the Architect.
 
-Resolve your role **once, at session start** — it cannot change mid-session:
+Resolve your role **once, at session start**. It cannot change mid-session:
 
 1. **The public role is Architect.** A user's ticket request starts or updates
    only that role.
@@ -59,8 +59,8 @@ Sessions share no context, so "which one reads" is never a delegation choice:
 
 - **Skills**: the `camb-dev`, `cosmolike-dev`, `porting-legacy-physics-code`,
   and `cpp-loop-optimization` skills are NOT used here; that work belongs to
-  the other Cocoa arms. When a skill does apply, each session loads it itself —
-  never substitute the other role's summary, because paraphrased discipline is
+  the other Cocoa arms. When a skill does apply, each session loads it itself.
+  Never substitute the other role's summary, because paraphrased discipline is
   lossy like paraphrased numerics.
 - **`ai/notes/`**: the Architect reads broadly, index first; the Implementer
   reads the entry its handoff names plus its `[[links]]`. Exactly eleven
