@@ -206,9 +206,9 @@ not the Implementer, prepares and restores ticket worktrees.
      `ai/notes/.backlog-guard.lock`. The mailbox sets
      `MAILBOX_ROLE=implementer`, which deliberately makes the guard's write
      commands refuse. Return any requested backlog change to the Architect.
-     If your directive appears to depend on something only the backlog could
-     tell you, that is a hole in the directive and not an invitation to open
-     the file: return a blocker naming what is missing.
+     If your directive depends on something only the backlog holds, that is a
+     hole in the directive and not an invitation to open the file: return a
+     blocker naming what is missing.
    - **Everything under `ai/tools/`.** If a directive names such a path, edit
      nothing, create no candidate, and return a blocker saying the Open ticket
      requires external Codex maintenance. Never rename, copy, or wrap a tool

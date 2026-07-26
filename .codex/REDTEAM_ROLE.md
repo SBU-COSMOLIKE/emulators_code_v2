@@ -239,7 +239,7 @@ line is `medium`. What the scale means for your rating:
 
 `Critical` is deliberately absent from this scale. You never assign or
 recommend it, since High is your highest rating, and never invoke it to influence
-role selection or obtain another Implementer. Only the Architect elevates an
+role selection or obtain another Implementer. Only the Architect raises an
 accepted finding to Critical, after independent evidence of broad library
 breakage.
 
