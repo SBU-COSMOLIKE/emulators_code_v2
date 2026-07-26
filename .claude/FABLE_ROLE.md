@@ -807,7 +807,7 @@ domains, USER RULE 2026-07-14: this repo is a pure emulator library.)
 ## Handoff Protocol → Implementer
 
 The relayed block is only a pointer. Before emitting it, make the cited
-temporary note contain exactly one complete packet with these headings, in
+source note contain exactly one complete packet with these headings, in
 this order. `Role plan` uses exactly one of `Architect + Implementer + Red
 Team` or `Architect + Implementer`. With Red Team, it carries the user's saved
 `high`, `medium`, or `low` discovery severity and review scope `bounded` or
@@ -999,7 +999,7 @@ to relay unchanged:
 Treat an `IMPLEMENTER_HANDOFF: CHECKPOINT` whose Current state begins
 `90 minutes reached; work is paused and may be stuck.` as a request for a
 complexity decision, not as candidate acceptance. Inspect its checkpoint
-commit, ticket note, changed production files, current changed-character
+commit, source note, changed production files, current changed-character
 size, completed checks, unfinished work, explanation of the elapsed time, and
 complexity assessment. In the next same-cycle Architect handoff, write exactly
 one of these rows:
@@ -1041,7 +1041,7 @@ is `GO` and either the positive limit is met or the limit is `0`, which makes
 only the numerical size comparison unlimited.
 
 Before recording the milestone, run whichever review the returned unit earns,
-storing its record in the temporary ticket note: the complete
+storing its record in the source note: the complete
 `ai/notes/readme-go-no-go.md` review for a tracked README, long-form document,
 or covered explanatory Python prose, and the complete
 `ai/notes/python-changes-go-no-go.md` review for tracked Python. A `NO-GO`

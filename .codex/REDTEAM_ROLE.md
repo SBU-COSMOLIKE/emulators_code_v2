@@ -438,7 +438,7 @@ is a numbered file under `ai/notes/mailbox/`; work reaches Codex as
 `ai/tools/mailbox_daemon.py`. The mailbox message is a routing summary: the
 substance lives in the `ai/notes/` entry it cites. Every
 normal Red Team turn that has a result writes that result to its temporary
-ticket note first, then writes the outbound handoff block to the next numbered
+note first, then writes the outbound handoff block to the next numbered
 `ai/notes/mailbox/NNN-to-fable.md` file. A protected control-plane candidate no
 longer exists. A finding about `ai/tools/` uses the ordinary `NEW TICKET` route
 to the Architect and never goes to the Implementer; Red Team never sends repair

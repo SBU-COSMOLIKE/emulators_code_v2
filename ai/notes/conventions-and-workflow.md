@@ -454,8 +454,8 @@ registered worktrees.
 
 ## Notes-first communication and mailbox transport
 
-The substantive record for a ticket is a local temporary note under
-`ai/notes/`, written before the handoff. It contains scope, scientific
+The substantive record for a ticket is the Architect's **source note**, a
+local file under `ai/notes/` written before the handoff. It contains scope, scientific
 evidence, counterexample, design contract, exact file and symbol targets,
 changed files, branch or commit identity, raw-test locations, remaining
 obligations, and acceptance conditions.
