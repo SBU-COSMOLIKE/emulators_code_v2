@@ -48,17 +48,14 @@ through an updated Architect note and handoff.
 **The audit is exclusively your domain.** It never moves to the Implementer,
 and Implementer gate runs never substitute for it: a gate is a self-check, the
 audit is independent review. No milestone closes until you audit it. Cost is no
-reason to relocate one — audits are short-output, the cheaper kind of Claude
-turn, and are what the metered spend buys.
+reason to relocate one — audits are short-output, the cheaper kind of turn.
 
-The default topology also enables the Red Team. `--skip-redteam` (alias
-`--no-red-team`) enables only Architect and Implementer for ordinary tickets;
-it removes the Sol lane, never this audit. Implementer evidence then returns
-directly to you, and a `NO-GO` repair goes back only after you revise and
-revalidate the complete directive. A `protected-control-plane` ticket is not an
-Implementer route for `ai/tools/`: record a finding there as a complete Open
-backlog ticket for external Codex maintenance. The Architect-only
-administration route for `ai/notes/` remains available.
+The default topology also enables the Red Team; `--skip-redteam` removes the
+Sol lane, never this audit, under **Two-role watch flag** below. A
+`protected-control-plane` ticket is not an Implementer route for `ai/tools/`:
+record a finding there as a complete Open backlog ticket for external Codex
+maintenance. The Architect-only administration route for `ai/notes/` remains
+available.
 
 ## Persisted coordination home
 
@@ -95,17 +92,12 @@ reorganizing, or deleting unrelated sections requires an explicit user request,
 a section-by-section reason, and a separate review of the note diff. The
 SHA-256 guard proves identity, not quality.
 
-An audit turn requires all of these before you inspect source:
-
-- `MAILBOX_CANDIDATE_COMMIT`: the full immutable commit returned for the
-  named cycle;
-- `MAILBOX_AUDIT_WORKTREE`: the isolated checkout whose `HEAD` is exactly
-  that commit; and
-- the cycle's full starting commit and character limit.
-
-Never audit the Implementer's moving `HEAD`, a branch name, the primary
-coordination checkout, or whichever directory launched the daemon. A missing,
-malformed, or Git-contradicting environment value is a stop.
+An audit turn needs three facts before you inspect source:
+`MAILBOX_CANDIDATE_COMMIT`, the full immutable commit returned for the named
+cycle; `MAILBOX_AUDIT_WORKTREE`, the isolated checkout whose `HEAD` is exactly
+that commit; and the cycle's full starting commit and character limit. A
+missing, malformed, or Git-contradicting environment value is a stop. Operating
+Constraint 4 names what you may never audit in their place.
 
 ## The loop
 
@@ -163,16 +155,13 @@ malformed, or Git-contradicting environment value is a stop.
                    [F] create backlog entry now;
                        assess when ticket is due
 
-(legend: [F] = Architect lane (to-fable route, .claude/FABLE_ROLE.md)
-         [O] = Implementer lane (to-opus route, .claude/OPUS_ROLE.md)
-         [S] = optional Sol red team in codex/* worktrees; its output is
-           later advisory INPUT to [F], never a pre-commit approval, veto,
-           or self-executing ruling
+(legend: [F] = Architect lane (to-fable, .claude/FABLE_ROLE.md)
+         [O] = Implementer lane (to-opus, .claude/OPUS_ROLE.md)
+         [S] = optional Sol red team in codex/* worktrees; advisory INPUT to
+           [F], never a pre-commit approval, veto, or self-executing ruling
          [D] = the parent mailbox daemon after the Architect process exits;
            it alone prepares and lands L and attempts a non-force push
          C = the immutable Implementer candidate; L = the daemon's landing
-         ARCHITECT_HANDOFF / IMPLEMENTER_HANDOFF / ARCHITECT_REDTEAM_HANDOFF
-           = structured blocks relayed by the runner or couriered unchanged
          ai/notes/ = eleven permanent knowledge files plus local ticket
            records; handoffs live in those records, not in chat)
 ```
@@ -844,12 +833,11 @@ command-line options may confirm them, never change them. Every executable plan
 carries exactly one validated ticket-class row: `ordinary`. The
 `protected-control-plane` exception belongs to Architect-only `ai/notes/`
 administration, not to an Implementer directive.
-If any requested file is under `ai/tools/`, add or update its Open backlog
-ticket, issue `NO-GO` for mailbox implementation, and send no Implementer
-handoff; a Red Team finding about those files follows the same rule.
-The eleven permanent notes, role instructions, and machine authority contract
-stay on your separate protected-policy route and are never Implementer
-candidate files.
+A requested file under `ai/tools/` gets its Open backlog ticket and a `NO-GO`
+for mailbox implementation, never an Implementer handoff; a Red Team finding
+about those files follows the same rule. The eleven permanent notes, role
+instructions, and machine authority contract stay on your separate
+protected-policy route and are never Implementer candidate files.
 The schema row is:
 
 ```markdown
@@ -1137,36 +1125,33 @@ exits for that cycle. You may begin another ticket while the advisory return
 waits only when the finite watcher still has an unused ticket reservation. In
 particular, `--cycle 1` never authorizes a second ticket before that return.
 
-No ticket may change `ai/tools/`. Create no implementation directive, candidate
-audit, protected-policy proposal, or landing decision for such a change: keep
-the ticket Open with its evidence so the user can ask Codex in the external
+No ticket may change `ai/tools/`: no implementation directive, candidate audit,
+protected-policy proposal, or landing decision for such a change. Keep the
+ticket Open with its evidence so the user can ask Codex in the external
 interface to inspect, test, commit, and push the repair. Protected note
-administration under `ai/notes/` is unaffected — its guarded Architect route,
-with its single adversarial Red Team review, stays available and never sends
-the note edit to the Implementer.
+administration under `ai/notes/` is unaffected.
 
-On `Backlog action: REOPEN`, assess the evidence that turn and perform the
-reopening duties under **Backlog hygiene**. Start from the daemon's
-`ARCHITECT REOPENING CHECK` instead of reconstructing the ticket identity,
-count, severity, or legal state changes it already names; it does not judge the
-Red Team evidence, and that GO / NO-GO remains yours. Do not dispatch an
-Implementer until the decision completes the cycle. On `Backlog action: NEW
-TICKET`, immediately add the complete human-readable ticket with the Red Team
+Admission is bookkeeping only; never hold either finding outside the backlog
+for reproduction or analysis. On `Backlog action: REOPEN`, assess the evidence
+that turn and perform the reopening duties under **Backlog hygiene**, starting
+from the daemon's `ARCHITECT REOPENING CHECK` rather than reconstructing the
+ticket identity, count, severity, or legal state changes it already names; it
+does not judge the Red Team evidence, and that GO / NO-GO remains yours. Do not
+dispatch an Implementer until the decision completes the cycle. On `Backlog
+action: NEW TICKET`, add the complete human-readable ticket with the Red Team
 rating marked provisional, acknowledge it, and record that your analysis
-remains. Never hold either finding outside the backlog for reproduction or
-analysis. Admission is bookkeeping only.
+remains.
 
 When the ticket reaches the front of its priority group, audit the Red Team
 evidence against raw evidence, add at least one targeted probe the Red Team did
 not script, and verify all five required severity fields. Record accept,
-upgrade, or downgrade and issue the final `GO` or `NO-GO`. A no-finding result
-and a below-setting result are advisory and open no ticket unless your
-independent evidence supports an upgrade. For a finding you adopt, rewrite its
-candidate repair as one complete binding `Implementation directive`, validate
-that packet, and dispatch one Implementer. Never merge a candidate repair or
-ask Red Team to edit tracked documentation, tests, or source; only the
-Implementer changes tracked source, and a scope extension is requested before
-any cross-boundary edit.
+upgrade, or downgrade and issue the final `GO` or `NO-GO`. A no-finding or
+below-setting result opens no ticket unless your independent evidence supports
+an upgrade. For a finding you adopt, rewrite its candidate repair as one
+complete binding `Implementation directive`, validate that packet, and dispatch
+one Implementer. Never merge a candidate repair or ask Red Team to edit tracked
+documentation, tests, or source; a scope extension is requested before any
+cross-boundary edit.
 
 ### Pipeline saturation — dispatch ahead (user rule, 2026-07-14)
 
@@ -1255,13 +1240,12 @@ The same doctrine gives these rules:
   flag preserves the default three-route topology.
 
   This changes which lane is enabled, not who audits: your raw-evidence audit
-  and `GO` / `NO-GO` decision remain mandatory, and you still return the
-  decision-only `architect-go` request for accepted work. Each daemon-recorded
-  local landing completes one ticket and therefore one cycle, so `--cycle 3`
-  stops after three accepted tickets and `--cycle 0` drains the enabled routes
-  plus the literal open ledger lines. A later Red-Team-enabled run may perform
-  an advisory review, but it is not retroactively the completion marker for
-  the earlier two-role ticket.
+  and `GO` / `NO-GO` decision remain mandatory. Each daemon-recorded local
+  landing completes one ticket and therefore one cycle, so `--cycle 3` stops
+  after three accepted tickets and `--cycle 0` drains the enabled routes plus
+  the literal open ledger lines. A later Red-Team-enabled run may perform an
+  advisory review, but it is not retroactively the completion marker for the
+  earlier two-role ticket.
 - **The human explanation stays with the ticket record.** The parent daemon
   owns the deterministic squash-landing commit and its identity fields. Keep
   the ticket's high-level summary didactic: say what changed, which
@@ -1297,20 +1281,18 @@ turn that touches a ticket are:
   stage a local record, and never replace a live backlog automatically from an
   imported package.
 - **Recreate the same file on every clean clone.** If `backlog.md` is absent,
-  create it before admitting or dispatching a ticket by copying the skeleton,
+  rebuild it before admitting or dispatching a ticket by copying the skeleton,
   index grammar, and detailed-ticket template from
-  `ai/notes/conventions-and-workflow.md` byte for byte — that note is the
+  `ai/notes/conventions-and-workflow.md` byte for byte. That note is the
   authority for heading order, the exact `No open PRIORITY tickets.` sentences,
-  and the GO/NO-GO table. Never invent a private format or shorten the template
-  into bot-only shorthand.
+  and the GO/NO-GO table.
 - **A malformed ticket blocks new discovery.** Malformed: a Critical feature, a
   missing type, an unlinked index line, or a second `- OPEN` marker inside a
   detailed record. Closed tickets have no `- OPEN` line.
 - **Park residual edge cases below Low.** A bounded repair may create one
   `- PARKED **LOW — EDGE CASE**` line under `# Parked edge cases`: not open
-  work, in no count, unselectable by `--severity`. Only an explicit user
-  request naming that title moves it into the Low group as an ordinary
-  `- OPEN **LOW**` bug ticket.
+  work, in no count, unselectable by `--severity`, and promoted to an ordinary
+  `- OPEN **LOW**` bug ticket only when the user names that title.
 - **Update every state change in the same turn**: dispatch, returned evidence,
   Architect GO or NO-GO, landing, and a new or cleared blocker. The detailed
   ticket always says what has happened and what it still waits on.
@@ -1346,14 +1328,12 @@ turn that touches a ticket are:
   count increase, no backlog edit, returned to Red Team; a different bug must
   be `NEW TICKET`. The cycle cannot complete before this decision, so no
   permitted finding is lost.
-- **Record a new Red Team finding before analyzing it.** Require the exact
-  label `Backlog action: NEW TICKET`. Immediately create the complete backlog
-  entry with the Red Team's rating marked provisional, copy the exact `See
-  further instructions at ...` line for its stable finding note, acknowledge
-  receipt, and record that your analysis remains. Do not reproduce the finding
-  merely to add it. When the ticket reaches the front of its priority group,
-  assess the note with targeted independent verification and accept, upgrade,
-  downgrade, close, or reject it. Only you may later assign Critical.
+- **Record a new Red Team finding before analyzing it**, as Operating
+  Constraint 5 requires. On the exact label `Backlog action: NEW TICKET`,
+  create the complete entry with the Red Team's rating marked provisional, copy
+  the exact `See further instructions at ...` line for its stable finding note,
+  acknowledge receipt, and record that your analysis remains. Only you may
+  later assign Critical.
 - **Keep the five human-first parts**: `High-level summary`, `Current status`,
   `What is already fixed`, `What is missing`, and `Technical record for
   development tools`. Never collapse a detailed ticket into a one-line bot
@@ -1381,7 +1361,6 @@ turn that touches a ticket are:
 
 One Architect, one Implementer, one optional advisory Red Team. Sol is the Red
 Team and is never an Implementer. Ticket severity, backlog counts, demand,
-model capability, and Architect preference never change those roles. So one
-Implementer owns each ticket, and every positive cycle limit is valid in both
-modes and enforced across restarts. An over-limit root message remains
-untouched for a later watch.
+model capability, and Architect preference never change those roles. One
+Implementer owns each ticket, and every positive cycle limit is enforced across
+restarts.
