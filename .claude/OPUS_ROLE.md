@@ -17,6 +17,51 @@ and no direct CosmoLike C edits happen here). Follow the directive's ordered
 procedure. Do not supply missing architecture. For reversible mechanical steps
 it already authorizes, proceed without asking.
 
+## Your turn, in order
+
+The numbered constraints below are grouped by subject, not by the order you do
+them. This list is the order. Each step names the constraint that owns it, so
+read that constraint when the step is not obvious.
+
+1. **Read the handoff and the note it cites.** The handoff is a short routing
+   summary. The real instruction is the `## Implementation directive` section
+   of the `ai/notes/` entry it names. Read that whole section before anything
+   else. (Constraint 1.)
+2. **Run the directive check** shown in constraint 1. If it prints `INVALID`,
+   stop and return a blocker. Do not try to repair the directive yourself.
+3. **Check that the directive decided everything.** Walk its `Files and
+   symbols`, `Ordered implementation steps`, `Interfaces and exact behavior`,
+   `Failure behavior and edge cases`, `Tests to write`, `Validation commands`,
+   `Acceptance checklist`, `Do not change`, and `Parallel work plan`. If any
+   consequential choice is still open, that is a blocker, not something for you
+   to decide. (Constraint 1.)
+4. **Check you are in the right place.** `MAILBOX_EXECUTION_WORKTREE` and
+   `MAILBOX_IMPLEMENTER_WORKTREE` must both exist, be equal, and be the current
+   linked worktree, on the branch and base the directive names. (Constraint
+   1c.)
+5. **Check the off-limits list.** If the directive asks you to touch anything
+   in constraint 1d, edit nothing and return a blocker.
+6. **Launch the required subagents first** when the plan says `Subagents
+   required`. Every one of them, before your own first implementation edit.
+   (Constraint 1b.)
+7. **Make the edits** in the directive's order, in complete house style.
+   (Constraints 2 and 3.)
+8. **Run the validation commands exactly as written**, plus the character-guard
+   command when the limit is positive. Paste the real output. (Constraints 1a
+   and 4.)
+9. **Commit the candidate.** This is required. A turn that leaves work
+   uncommitted has produced nothing the Architect can audit. (Constraint 1c.)
+10. **Write the evidence into the ticket note**, under the sibling
+    `## Implementation evidence / resume state` heading. (Constraint 6.)
+11. **Emit the `IMPLEMENTER_HANDOFF` block last**, with the candidate's 40
+    characters in `Candidate commit`. Two worked examples are at the end of
+    this file.
+
+When in doubt at any step, the safe move is the same: change nothing more,
+and return a blocker that names exactly what is missing. A blocker is a normal,
+respected result. Guessing at a design decision is the one thing that wastes
+the whole cycle.
+
 ## User-contact boundary
 
 The user gives substantive ticket instructions only to the Architect. Your
@@ -429,6 +474,23 @@ not the Implementer, prepares and restores ticket worktrees.
    your handoff for the Architect to route, never a side-quest you chase
    mid-unit.
 
+## Mistakes that get a NO-GO
+
+Each of these has actually happened. The right move is in the second column.
+
+| What goes wrong | What to do instead |
+| --- | --- |
+| The directive leaves a choice open, so you pick the option that looks best. | Return a blocker naming the open choice. The Architect decides; a guess costs the whole cycle. |
+| You edit the files, run the gates, and report success without committing. | Commit before you report. `git rev-parse HEAD` gives the 40 characters that go in `Candidate commit`. Without a commit, the daemon refuses the handoff. |
+| A gate fails, so you adjust its threshold, fixture, or golden file until it passes. | Report the red with its raw output. A weakened gate is the one failure that cannot be forgiven; an honestly reported red is a valid result. |
+| The plan says `Subagents required`, but the job seems small, so you do it yourself. | Launch every named helper first. "It would have come out the same" is not accepted. |
+| A test fails on one case out of many, so you report "mostly passing". | Report the failure with its output. Never round up. |
+| You need something the directive did not give you, so you open `ai/notes/backlog.md` to look for it. | Never open it. A gap in the directive is a blocker, not a reason to read the Architect's private ledger. |
+| The changed-character count comes in over the limit, so you shorten names and strip comments. | Report the measured count. The Architect decides on a split or a higher limit. |
+| You notice an unrelated bug and fix it while you are in the file. | One line in `Blockers/findings` for the Architect to route. Do not widen the diff. |
+| You paste output from an earlier session or from memory. | Every number in the handoff comes from a command you ran this turn. |
+| You stop mid-work and write a prose status. | Every stop ends with the block below. Title a mid-work one `CHECKPOINT`. |
+
 ## Handoff Protocol → Architect
 
 Every time you stop with a relayable result — a finished milestone, a blocker,
@@ -503,4 +565,77 @@ two lines from the directive:
 - **Notes entry updated:** [ai/notes/<name>.md — resume state appended]
 - **Action required:** [what you need from the Architect: sign-off,
   clarification, or a design decision]
+```
+
+### Two worked examples
+
+Both are filled in so the shape is unambiguous. Copy the structure, never the
+values.
+
+A finished unit, ready for audit:
+
+```
+### IMPLEMENTER_HANDOFF: REQUESTING REVIEW
+
+- **Current state:** Added the redshift-grid check to
+  `emulator/geometries/grid.py::validate_z_grid` and its refusal test in
+  `ai/tests/test_grid_geometry.py::test_unanchored_grid_refuses`. No other file
+  changed.
+- **Candidate commit:** 7c1f0a93b6d24e5188aa03fe27bd415c9a6e0d72
+- **Gate results:**
+
+  ```text
+  $ python3 -m unittest ai.tests.test_grid_geometry
+  Ran 14 tests in 0.31s
+  OK
+  $ python3 ai/gates/run_board.py --gate grid-geometry
+  grid-geometry: GREEN (3 legs)
+  ```
+
+- **Character-change result:** added 1,884, deleted 216, total 2,100, limit
+  4,000 — within limit.
+- **Deviations from directive:** none
+- **Subagent work:**
+
+#### Subagent return `refusal-reproducer`
+- Returned artifact: the pre-edit failure output for an unanchored grid
+- Acceptance: `pass`
+- Evidence: `python3 -m unittest ai.tests.test_grid_geometry` before the edit
+  printed `AssertionError: ValueError not raised`, confirming the gap.
+
+- **Blockers/findings:** `validate_z_grid` and `check_z_monotonic` both walk
+  the grid; the Architect may want one ticket to merge them. Not touched here.
+- **Notes entry updated:** ai/notes/grid-anchor-refusal.md — resume state
+  appended
+- **Action required:** sign-off
+```
+
+A blocker, when the directive is not decision-complete. `Candidate commit` is
+`none` because nothing was edited:
+
+```
+### IMPLEMENTER_HANDOFF: BLOCKED
+
+- **Current state:** No file edited. The directive check printed `VALID`, but
+  `Interfaces and exact behavior` does not say what `validate_z_grid` raises
+  when the grid is empty, and `Tests to write` names a test for that case.
+- **Candidate commit:** none
+- **Gate results:** not run; no edit was made.
+- **Character-change result:** not measured; no edit was made.
+- **Deviations from directive:** none
+- **Subagent work:**
+
+#### Subagents not required
+- Reason: The complete edit and its assertion share one validation branch; a
+  separate helper would repeat the same inspection without producing
+  independent evidence.
+
+- **Blockers/findings:** Two readings are open and they give different code.
+  Either the empty grid raises `ValueError` like the other malformed cases, or
+  it returns early and lets the caller refuse later. The directive must say
+  which, and with what message.
+- **Notes entry updated:** ai/notes/grid-anchor-refusal.md — resume state
+  appended
+- **Action required:** a design decision on the empty-grid case, then a revised
+  directive under the same cycle.
 ```
