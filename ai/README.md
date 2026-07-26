@@ -10,8 +10,8 @@
 
 ## Why split the work into three roles?
 
-This system is useful when one powerful AI model is too expensive to use for
-every part of development. Planning and review can be short. Reading files,
+This system is useful when the most capable AI model available costs too much
+to run for every part of development. Planning and review can be short. Reading files,
 writing code, running tests, and repairing failures often use much more of an
 account's allowance.
 
@@ -1218,9 +1218,9 @@ writing the directive and again before the final verdict. The contract protects
 explicit, teachable Python even when a ticket has a character-change limit.
 
 The backlog is the exception among working records: Git tracks it because its
-Open tickets are valuable project work. Dated reviews, incident reports,
-handoff registers, mailbox files, and relay logs remain local and are not
-committed.
+Open tickets are unfinished work that a new clone must still see. Dated
+reviews, incident reports, handoff registers, mailbox files, and relay logs
+remain local and are not committed.
 
 A clean clone already contains `ai/notes/backlog.md`. If it is missing,
 restore it from the current `main` branch instead of inventing a replacement.

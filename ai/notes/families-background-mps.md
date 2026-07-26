@@ -738,7 +738,7 @@ allocated.
 keeps the seeded selection as a permutation of that storage. The law transform
 preserves `idx` in both the disk-backed and in-memory paths, so both paths show
 the training loader the same cosmology at every position. The evidence uses a
-nontrivial order, refuses N−1 and N+1 raw, parameter, or base rows while N
+nontrivial order, refuses `N-1` and `N+1` raw, parameter, or base rows while N
 passes, and fails if the transform replaces the seeded permutation with plain
 `arange`.
 
