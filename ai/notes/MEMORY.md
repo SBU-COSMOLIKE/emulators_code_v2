@@ -132,13 +132,10 @@ technical rule.
 
 ### Integrity update for an intentional note change
 
-SHA-256 is a fixed-length fingerprint calculated from exact file bytes. A
-**tracked** file is a file Git saves in repository versions. A **commit** is
-one saved repository version, and a **diff** is the line-by-line comparison
-between two versions. A **pinned base** is the full commit identifier that the
-Architect selects as the accepted starting point. The SHA-256 guard compares
-the permanent files with that starting point and protects against accidental
-edits. An intentional accepted change does not weaken or bypass the guard.
+A **pinned base** is the full commit identifier the Architect selects as the
+accepted starting point. The SHA-256 guard compares the permanent files with
+that starting point and protects against accidental edits. An intentional
+accepted change does not weaken or bypass the guard.
 
 1. The Architect reviews the complete note diff and every renamed reference.
 2. The Architect confirms that exactly eleven top-level Markdown notes remain

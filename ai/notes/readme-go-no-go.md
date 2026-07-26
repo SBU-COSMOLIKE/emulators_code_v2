@@ -365,12 +365,6 @@ ai/notes/python-changes-go-no-go.md
 ai/tools/permanent_note_guard.py
 ```
 
-SHA-256 is a fixed-length fingerprint calculated from exact file bytes. A Git
-commit is one saved repository snapshot. A Git worktree is a separate folder
-that checks out one branch without changing another working folder. `HEAD` is
-the commit selected in that worktree. The staging area contains changes chosen
-for the next commit, while working files are the files presently on disk.
-
 The expected SHA-256 values do not live in an editable checksum file. The
 Architect pins the full starting commit in the directive. Before dispatch and
 again before any final `GO`, the Architect runs:
