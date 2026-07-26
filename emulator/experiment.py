@@ -1292,7 +1292,7 @@ def validate_grid(cfg, train_args, rescale="none"):
   if law == "log_offset" and "offset" not in grid:
     raise ValueError(
       "the log_offset law needs data.grid.offset (the additive constant "
-      "in log(target + offset), the legacy emulbaosn convention): state "
+      "in log(target + offset), the legacy emulbaosn convention; state "
       "it explicitly, never a default); it is missing")
   if law == "log_offset" and not _is_finite_real(grid["offset"]):
     raise ValueError(
@@ -3979,7 +3979,7 @@ class EmulatorExperiment:
               "the " + law + " law takes log(quantity / base) and needs "
               "both strictly positive; found " + str(bad) + " non-positive "
               "entries across the staged rows (a failed generator sample "
-              "left zero rows): drop it from the dump, the failfile names "
+              "left zero rows; drop it from the dump, the failfile names "
               "it)")
           law_chunk = np.log(raw_chunk / base_chunk)
         law_rows[a:b] = law_chunk.astype("float32")
@@ -4731,7 +4731,7 @@ class EmulatorExperiment:
           raise ValueError(
             "the transfer base carries amplitude_law " + repr(bgeom.law)
             + "; a CMB transfer needs a law-none base (the transfer "
-            "loss owns the target construction): train or pick a base "
+            "loss owns the target construction; train or pick a base "
             "with amplitude_law: none)")
         src_ell = bgeom.ell.detach().cpu().numpy()
         if not np.array_equal(ell, src_ell):
