@@ -186,7 +186,7 @@ must produce a teaching error.
 The acceptance blocks below use the following terms:
 
 - A **gate** is a named validation job whose required result is written before
-  it starts. A **leg** is one named check and supports only the claim stated by
+  it runs. A **leg** is one named check and supports only the claim stated by
   that leg.
 - A **golden comparison** runs the candidate code and a trusted reference, then
   compares the declared observations. The trusted reference is the **pinned

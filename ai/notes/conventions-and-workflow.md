@@ -1309,8 +1309,9 @@ shifts one saved multipole coordinate and checks that loading refuses the
 mismatch before reading spectra.
 
 A **gate** is a named final check for a larger requirement, running one test,
-several tests, a scientific comparison, or a hardware-dependent job. A passing
-narrow test does not replace a gate the Architect required.
+several tests, a scientific comparison, or a hardware-dependent job. Its
+required result is written before the job runs. A passing narrow test does not
+replace a gate the Architect required.
 
 The **validation board** is the ordered registry of gates and the raw machine
 evidence saved for each run. The Architect reads the board and the actual
