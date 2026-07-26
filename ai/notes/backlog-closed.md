@@ -41,7 +41,7 @@ declaration. Coverage: `ai/tests/test_protected_control_plane_shadow.py`.
 HIGH bug fix. The Syren formulas accept the primordial amplitude as either `As`
 or `As_1e9 = 10^9 As`, and a Cobaya run can supply both. The helper took
 `As_1e9` without checking agreement, so a saved network could read one
-amplitude while its analytic Syren starting surface used another — both finite,
+amplitude while its analytic Syren starting surface used another: both finite,
 together describing no single cosmology, and shifting the analytic linear-power
 baseline by about 77 percent. `syren_params_from` in `emulator/syren_base.py`
 now compares `As_1e9` against `1e9 * As` under one tolerance sized to float32
@@ -54,8 +54,8 @@ derived state exists. Candidate `f30f406`.
 Team correctly observed that `emul_mps.calculate` calls the linear learned
 predictor once before `syren_params_from` raises, so an earlier "before any
 learned predictor" wording overstated the boundary (corrected above). The
-durable authority — `saved-emulators.md`, "Syren parameter
-aliases must agree" — requires refusal before either analytic formula and no
+durable authority (`saved-emulators.md`, "Syren parameter
+aliases must agree") requires refusal before either analytic formula and no
 surviving derived state, and the landing meets both. The finding is Low, below
 this ticket's High severity, and causes no wrong science, data loss, or halt.
 
@@ -88,7 +88,7 @@ reason, and an automated check rejects a stale inventory row. Landed as
 ### Make the YAML workflow diagram readable on phones
 
 The first `example_yamls` diagram was too wide for a phone. It is now a
-five-step vertical path — choose, copy, edit, check, run — with the same
+five-step vertical path (choose, copy, edit, check, run) with the same
 sequence stated in prose. Landed as `ac3b3eb`.
 
 ### Move detailed appendices out of the main README
@@ -123,7 +123,7 @@ commands, visible results, stopping, recovery, and bundle transfer, while
 
 Six workflow diagrams were hard to follow on narrow screens. They now read top
 to bottom using visible actions, with the prose beside each picture stating the
-same sequence — so no safety rule depends on interpreting the graph.
+same sequence, so no safety rule depends on interpreting the graph.
 
 ### Add a beginner guide for Cobaya adapters
 
@@ -299,7 +299,7 @@ upgrade, or downgrade a finding with a reason.
 ### Limit changed characters without allowing unreadable code
 
 Maintenance tickets needed a way to reject changes that touch too much code.
-`--max` limits added plus deleted characters — zero means unlimited, and an
+`--max` limits added plus deleted characters; zero means unlimited, and an
 unmeasurable or conflicting candidate refuses. The Architect must still reject
 shortened names, collapsed logic, or removed explanations. Landed as `859dab2`.
 
@@ -382,9 +382,9 @@ a future Syren source edit keeping the old law name is parked under
 
 Plausible-looking distances could be served for a calculation this
 implementation does not support. Background distances now start from an ordered
-Hubble grid anchored at redshift zero — nonfinite, negative, duplicate,
+Hubble grid anchored at redshift zero: nonfinite, negative, duplicate,
 reversed, or unanchored grids refuse at training, rebuild, and inside the
-integrator — the Cobaya bridge keeps each two-redshift request as an exact
+integrator, and the Cobaya bridge keeps each two-redshift request as an exact
 ordered `(N, 2)` pair, and generation and serving refuse a nonzero `omk`.
 Landed as `a3b345e`. Curved-distance formulas remain user responsibility.
 
@@ -768,7 +768,7 @@ automatically resetting a partially edited Implementer worktree could lose work.
 An ordinary commit or pull in the user's clean main folder left the three saved
 AI worktrees one commit behind, and the next watcher command refused to start
 because a user commit carries no ticket-landing receipt. That folder's exact
-commit is now recognized and every clean idle AI worktree advances to it — only
+commit is now recognized and every clean idle AI worktree advances to it, but only
 when no ticket or candidate is active and files and index are clean. Landed as
 `35f39b4`.
 
@@ -817,7 +817,7 @@ An Implementer could spend hours expanding one repair before the Architect saw
 the approach had become too complicated. The watcher now asks it to pause after
 90 minutes, save coherent progress, and explain size, remaining work, elapsed
 time, and complexity. The pause is a progress review inside the same ticket and
-cycle — it cannot be accepted as a candidate or landed.
+cycle, so it cannot be accepted as a candidate or landed.
 
 ### Require a checkpoint decision before implementation resumes
 
@@ -915,9 +915,9 @@ the old behavior corrupted no scientific output and erased no repository work.
 An Implementer can reach its context limit mid-ticket; files survive, but a
 fresh Implementer also needs to know what succeeded, what failed, and which
 rejected approach would waste time if repeated. The automatic `PreCompact` hook
-now asks for one small record — ticket, base and current commits, candidate
+now asks for one small record: ticket, base and current commits, candidate
 status, completed work, failures, rejected approaches, uncommitted files, and
-next action — and the watcher verifies it against the current worktree instead
+next action, and the watcher verifies it against the current worktree instead
 of inventing a summary.
 
 <a id="closed-implementer-shared-notes-grant"></a>
@@ -925,7 +925,7 @@ of inventing a summary.
 
 HIGH bug fix: a dispatched Implementer could neither read its directive nor
 write its return, so the role did no work and a live ticket turn produced
-nothing. The failure was certain rather than likely — every Ollama Implementer
+nothing. The failure was certain rather than likely: every Ollama Implementer
 dispatch failed the same way.
 
 The three roles work in separate worktrees, but the Architect worktree's
@@ -1021,7 +1021,7 @@ checks](backlog.md#open-workstation-debt).
 
 CRITICAL bug fix. With `--cycle 1` the watcher could start a second ticket while
 the first waited for its Red Team review, then count the first cycle complete
-and exit with that unrequested ticket already changed — defeating the human's
+and exit with that unrequested ticket already changed, defeating the human's
 limit on runtime, edits, and model credits. Commit `20119a1` reserves finite
 capacity before a public Architect turn, converts only an exact Implementer
 ticket, and releases a valid non-ticket control outcome without counting a
@@ -1052,7 +1052,7 @@ one uninterrupted longer run, plus a policy for pinning and retiring
 generations. Retired with the publication framework it extended:
 `compute_data_vectors/` returned to plain files under `chains/`, so there are no
 generations to pin, and append draws from a stream derived from the seed plus
-the existing row count — reproducible, and it never repeats a saved row. Exact
+the existing row count, reproducible, and it never repeats a saved row. Exact
 continuation would have required persisting complete sampler state.
 
 <a id="open-getdist-column"></a>
@@ -1114,7 +1114,7 @@ termination](backlog.md#parked-cmb-covariance-cleanup).
 MEDIUM bug fix. Training compares the untouched model, epoch snapshots, and
 moving-average snapshots, but the loop returned only histories, so each driver
 reconstructed the winner afterwards and could name a trained epoch when the
-baseline won — one emulator file beside a report describing another candidate.
+baseline won: one emulator file beside a report describing another candidate.
 `training_loop_batched` now returns a validated selection record (candidate kind,
 pass-local epoch, raw or EMA weights, and the winner's fractions, median, and
 mean), `run_emulator` stores each pass's record in the resolved recipe and
@@ -1153,8 +1153,8 @@ changes no model state and draws no random numbers. The parameter budget already
 multiplies weight bytes by five and the probe measures the real autograd-saved
 activations; the omitted index and bound buffers are kilobytes against that
 padding. A capacity-token reservation before worker allocation would only convert
-a visible out-of-memory failure into a queue wait. The one real remainder — a
-future family with stateful-forward modules — is parked as [Guard the sizing
+a visible out-of-memory failure into a queue wait. The one real remainder, a
+future family with stateful-forward modules, is parked as [Guard the sizing
 probe if a stateful-forward family is
 added](backlog.md#parked-memory-probe-stateful-forward).
 
@@ -1167,7 +1167,7 @@ survived Cobaya setup and failed later inside a getter. It now validates every
 `Pk_grid` and `Pk_interpolator` requirement while setup can still stop: only the
 `delta_tot` pair is accepted, the nonlinear choice must be boolean, requested
 redshifts must lie inside the stored z grid (z is never extrapolated), and
-`k_max` must be servable — inside the stored grid for the raw grid, beyond it
+`k_max` must be servable: inside the stored grid for the raw grid, beyond it
 for the interpolator only when the power-law tails are enabled. Each refusal
 names the observed request, the stored bound, and the corrective action.
 
@@ -1179,7 +1179,7 @@ family, and the enum on top of it is declined.** `.claude/OPUS_ROLE.md` requires
 a relayable `IMPLEMENTER_HANDOFF` for every stop; a mid-unit stop is titled
 `CHECKPOINT` and carries the changed files, completed checks, unfinished work,
 and the decision requested from the Architect. The specialized stops have their
-own validated shapes — `BUDGET BLOCKED`, the digest-bound capability checkpoint
+own validated shapes: `BUDGET BLOCKED`, the digest-bound capability checkpoint
 for a rejected subagent launch, and `CONTEXT HANDOFF`. The daemon routes the
 return to an Architect checkpoint audit instead of retrying, preserves saved
 checkpoints across a restart, and never treats a checkpoint commit as candidate
@@ -1197,9 +1197,9 @@ nonzero; the ticket that cycle served is still open, so restarting the watch
 runs a fresh cycle against the new `main`. The Implementer redoes the work on
 the actual new parent and the Architect audits a real complete candidate under
 the same uniform rule as every other landing, at a cost of one repeated
-Implementer turn for a rare event. The requested alternative — stale marking,
+Implementer turn for a rare event. The requested alternative (stale marking,
 provisional re-integration onto the new parent, a bounded re-audit protocol,
-replacement-landing binding, and real-Git witnesses for each scenario — is a
+replacement-landing binding, and real-Git witnesses for each scenario) is a
 second acceptance route through the daemon's highest-trust code, in which the
 Architect reviews only the interaction between an old GO and the intervening
 commits instead of a complete candidate.
@@ -1213,7 +1213,7 @@ choose the same path and the later run replaced the earlier evidence.
 `reserve_dispatch_log_path` in `ai/tools/mailbox_dispatch.py` now takes the name
 by exclusive creation and appends a two-digit suffix until a fresh name is
 accepted. `ai/tests/test_relay_log_reservation.py` hands the reservation one
-frozen stamp — no clock mocking — and requires both same-second logs to survive
+frozen stamp, with no clock mocking, and requires both same-second logs to survive
 with their own contents.
 
 <a id="open-candidate-circumvention-review"></a>
@@ -1223,7 +1223,7 @@ New functionality. A capable Implementer needs no malicious intent to preserve a
 rejected design under another name, weaken a test so the result passes, or move
 denied behavior into a wrapper. The audit section of `.claude/FABLE_ROLE.md` now
 carries the consolidated **CIRCUMVENTION CHECK**: five questions answered
-against the exact base-to-candidate diff before any GO — prohibitions preserved
+against the exact base-to-candidate diff before any GO: prohibitions preserved
 even through generated files and wrappers, no rejected design recreated under
 another name, no optional route restoring denied behavior, no checker change
 that lets this same candidate pass, and no evidence bound to a different commit.
@@ -1282,12 +1282,12 @@ decides anything.** Every dispatched turn places the trusted material first: the
 daemon's banner, the role preamble naming the authoritative role file, and the
 byte-unchanged common preamble. The raw mailbox body enters only after the exact
 `--- MESSAGE ---` delimiter, as the prompt's suffix. Returns that carry
-authority are structurally validated — the handoff contract checks envelope,
+authority are structurally validated: the handoff contract checks envelope,
 exact rows, and admission values, and the daemon acts only on parsed exact
 headers, so instruction-shaped prose inside a body cannot become an action
-whoever wrote it. The remaining proposal — a versioned report format with
-Unicode normalization, terminal-escape scrubbing, and duplicate-field rejection
-— is input sanitation proportioned to hostile bytes, not to a cooperating
+whoever wrote it. The remaining proposal (a versioned report format with
+Unicode normalization, terminal-escape scrubbing, and duplicate-field rejection)
+is input sanitation proportioned to hostile bytes, not to a cooperating
 Implementer.
 
 <a id="open-authenticated-control-messages"></a>
@@ -1302,8 +1302,8 @@ on free text; an Architect GO is consumed only from the Architect lane's own
 outbound and must bind the exact candidate commit; the daemon alone creates the
 landing commit, after the deciding Architect process has exited; and the sealed
 backlog plus full commit hashes bind every durable record to exact bytes. A
-local secret-key layer would add no boundary — the key would live on the same
-machine where every role runs — while key creation, storage, rotation, and
+local secret-key layer would add no boundary, since the key would live on the same
+machine where every role runs, while key creation, storage, rotation, and
 recovery would become permanent control-plane complexity.
 
 <a id="open-control-plane-regression-runner"></a>
@@ -1343,8 +1343,8 @@ future extraction needs its own ticket with its own boundary.
 
 New functionality. The watcher accepts `--github yes|no` with the documented
 default `yes`, so existing commands keep pushing unchanged. The choice is read
-in exactly one place — inside the push function that every landing kind and
-every debt retry already calls — so the local landing path is byte-identical for
+in exactly one place, inside the push function that every landing kind and
+every debt retry already calls, so the local landing path is byte-identical for
 both values. With `no` the function returns before any Git command: nothing
 contacts the remote, one sentence names the verified local landing and the user
 choice, no push-debt record is written, and debt records from earlier runs stay
@@ -1374,8 +1374,8 @@ with it.
 
 New functionality. **CLOSED — the test cannot be built without breaking a
 stronger rule.** Stopping the process exactly between the synchronization
-boundaries — after the move to recovery, after the tracked restore, after the
-fast-forward, before the recovery-file delete — requires either replacing
+boundaries (after the move to recovery, after the tracked restore, after the
+fast-forward, before the recovery-file delete) requires either replacing
 `os.replace`, the trusted `git restore`, or `os.unlink` while the routine runs,
 a monkey patch the Python contract prohibits in tests, or planting injection
 hooks inside the production synchronization code, which changes the trusted path
