@@ -116,7 +116,7 @@ effort through `--review-effort`. Their machine-generated identity and state
 records remove repeated bookkeeping, but the reviewing role still judges the
 evidence.
 
-For a closure review, the daemon also supplies the exact ticket title, landing
+For a closure review, the watcher also supplies the exact ticket title, landing
 commit, severity, reopen count, and legal `NO CHANGE` or `REOPEN` outputs. The
 small script supplies facts; it does not decide whether a bug remains.
 The shorter prompt also omits discovery rules that do not apply to this
@@ -665,7 +665,7 @@ The Architect records the ticket as Open, but sends no Implementer handoff.
 The ticket waits until the user asks Codex in the external interface to inspect,
 test, commit, and push the repair.
 
-The daemon checks this rule before Implementer launch, again when it examines
+The watcher checks this rule before Implementer launch, again when it examines
 a candidate, and once more before landing. The
 `protected-control-plane` name cannot turn an `ai/tools/` change into an
 Implementer ticket. Old saved tool requests stay parked for inspection and
@@ -1298,7 +1298,7 @@ update does not require a protected-policy ticket or Red Team policy review.
 Before accepting work from another role, the Architect confirms that the
 backlog still has the expected fingerprint. After the Architect deliberately
 adds, closes, reopens, or reclassifies a ticket, the Architect checks the
-human-readable entry and then records the new expected fingerprint. The daemon
+human-readable entry and then records the new expected fingerprint. The watcher
 places that sealed version in the same landing commit as the ticket fix. The
 Red Team reads the backlog, because auditing the Architect means seeing what
 the Architect decided, but it never edits either the backlog or the saved
@@ -1435,7 +1435,7 @@ The watcher owns the choices:
 `medium` also allows Medium bugs; `low` also allows Low bugs. New
 functionality, discovery, and parked Low edge cases remain excluded.
 
-After the Architect sends one Implementer plan, the daemon saves the same
+After the Architect sends one Implementer plan, the watcher saves the same
 request again. It waits behind the current ticket, then asks for the next
 eligible bug. A reached cycle limit leaves it for a later fix-only watch.
 
