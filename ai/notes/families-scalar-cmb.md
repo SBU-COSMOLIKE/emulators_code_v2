@@ -23,11 +23,6 @@ squared standardized residuals with no cross-coordinate terms. **Whitening**
 is the more general transformation making a residual's covariance the identity,
 so an ordinary sum of squares carries the intended covariance-weighted meaning.
 
-A **convolution head** predicts a correction with local filters along an
-ordered coordinate axis; an **attention head** predicts with learned
-comparisons among coordinate tokens. Scalar outputs have names but no ordered
-physical axis, so neither axis-dependent head is valid for scalar geometry.
-
 A **smoke gate** runs short and end to end through real generation, training,
 saving, and serving.
 

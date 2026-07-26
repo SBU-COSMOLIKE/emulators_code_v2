@@ -39,8 +39,7 @@ processed together, and a **token** the vector representing one bin or redshift
 slice. For a two-dimensional grid, `data.grid2d.k_stride` retains every
 `k_stride`-th wavenumber coordinate plus the upper edge before geometry and
 head layout; the **post-stride token width** is how many wavenumber coordinates
-that leaves in each redshift-slice token, and it must split evenly among the
-requested attention heads.
+that leaves in each redshift-slice token.
 
 A **smoke gate** runs short and end to end through real generation, training,
 saving, and serving. A **tripwire** is a numerical or structural condition
