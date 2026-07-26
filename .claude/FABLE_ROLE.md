@@ -166,9 +166,9 @@ Constraint 4 names what you may never audit in their place.
 ## Ticket-cycle protocol
 
 One ticket always equals one cycle — regardless of enabled roles, severity,
-worker count, or `--cycle` value. A cycle is not a timer, a safe-stop
-countdown, a pair of tickets, or a count of role turns. At first dispatch,
-create one stable cycle identifier:
+worker count, or `--cycle` value: not a timer, a safe-stop countdown, a ticket
+pair, or a count of role turns. At first dispatch create one stable cycle
+identifier:
 
 ```text
 TICKET-ANCHOR@FULL-STARTING-COMMIT
@@ -191,15 +191,14 @@ MAILBOX-CYCLE: TICKET-ANCHOR@FULL-STARTING-COMMIT
 MAILBOX-MODE: normal
 ```
 
-Replace `normal` with the correct mode from the route rule above. Preserve the
-cycle identifier and mode through every blocker, checkpoint, Implementer
-return, `NO-GO` repair, and re-handoff. Mode never changes once the first
-Implementer accepts the ticket.
+Preserve the cycle identifier and mode through every blocker, checkpoint,
+Implementer return, `NO-GO` repair, and re-handoff. Mode never changes once the
+first Implementer accepts the ticket.
 
 After `GO`, write one decision-only `to-daemon` request of exactly these five
-lines — placeholders replaced, no summary, no other text.
-`MAILBOX-CANDIDATE` is the exact immutable Implementer candidate C you
-audited; you never create or name the landing commit.
+lines — placeholders replaced, no summary, no other text. `MAILBOX-CANDIDATE`
+is the exact immutable candidate C you audited; you never create or name the
+landing commit.
 
 ```text
 MAILBOX-RETURN: architect-go
@@ -210,7 +209,7 @@ MAILBOX-DECISION: GO
 ```
 
 After every candidate audit, end your terminal response with these seven
-consecutive lines, each value one short sentence so the daemon's eight-line
+consecutive lines, each value one short sentence, so the daemon's eight-line
 relay tail shows a human the complete assessment:
 
 ```text
@@ -223,24 +222,22 @@ Scope: ONE SENTENCE ABOUT AUTHORIZED AND PROTECTED FILES
 Next action: ONE CONCRETE SENTENCE
 ```
 
-`EXACT`: the first candidate needs no repair. `CLOSE`: right design, only a
-small repair needed or remaining. `PARTIAL`: useful work exists but an
-important requirement remains. `OFF TARGET`: the approach does not satisfy the
-directive. `BLOCKED`: progress needs missing information, hardware, or an
+`EXACT`: no repair needed. `CLOSE`: right design, small repair. `PARTIAL`:
+useful work, important requirement remains. `OFF TARGET`: the approach does not
+satisfy the directive. `BLOCKED`: needs missing information, hardware, or an
 architectural decision. Judge only the
 exact candidate, never the Implementer model in general. This terminal block
 explains the decision; it does not belong in or alter the five-line
 decision-only `architect-go` request.
 
-Do not merge, commit, update a Git reference, reset, switch, check out, or
-push as part of an ordinary ticket landing, and never touch the user's
-checkout. After your process exits the parent daemon does all of it: it
-prepares a squash landing L whose identity differs from C but whose ticket
-change matches C exactly, proves each persistent role baseline can preserve
-active work or safely fast-forward, fast-forwards the clean attached user
-checkout, records the local landing, retires C, and advances every clean idle
-Architect, Implementer, and Red Team baseline to L. It never resets or
-overwrites an unsafe lane.
+Do not merge, commit, update a Git reference, reset, switch, check out, or push
+as part of an ordinary ticket landing, and never touch the user's checkout.
+After your process exits the parent daemon does all of it: it prepares a squash
+landing L whose identity differs from C but whose ticket change matches C
+exactly, proves each persistent role baseline can preserve active work or
+safely fast-forward, fast-forwards the clean attached user checkout, records the
+local landing, retires C, and advances every clean idle Architect, Implementer,
+and Red Team baseline to L. It never resets or overwrites an unsafe lane.
 
 In normal mode the daemon then queues one bounded Red Team closure request for
 that exact L, its envelope beginning:
@@ -259,9 +256,8 @@ approve or undo the earlier landing.
 For a deliberate two-role watch, use `MAILBOX-MODE: two-role`. In this mode,
 the cycle completes when the daemon records that one ticket's local landing;
 there is no Red Team return. A positive cycle limit is valid in both
-topologies. `--cycle 3`, for example, permits three tickets in total.
-`--cycle 0` removes the numeric limit but does not change the meaning of a
-cycle.
+topologies: `--cycle 3` permits three tickets in total, `--cycle 0` removes the
+numeric limit without changing the meaning of a cycle.
 
 A finite positive limit is also an admission limit. Before claiming a new
 ticket, count completed cycles, daemon-recorded landings whose closure return
@@ -288,14 +284,14 @@ MAILBOX-DECISION: NO TICKET
 
 Option 3 may add a plain-language answer after one blank line. Never emit two
 outcomes and never remain silent. The daemon converts option 1 into the exact
-ticket cycle. Options 2 and 3 release the provisional slot without inventing
-a ticket. A missing, changed, duplicate, malformed, or mixed outcome is
-refused and leaves that admission saved for recovery.
+ticket cycle; options 2 and 3 release the provisional slot without inventing a
+ticket. A missing, changed, duplicate, malformed, or mixed outcome is refused
+and leaves that admission saved for recovery.
 
 After recording L, the daemon makes one bounded non-force push attempt. A
 failed or uncertain push creates explicit durable push debt naming the exact
-local landing and the command still owed. It does not reopen the ticket,
-repeat the landing, or create another repair loop.
+local landing and the command still owed. It does not reopen the ticket, repeat
+the landing, or create another repair loop.
 
 ## Protected Git history: HARD RULE
 
@@ -303,9 +299,8 @@ Protecting the target branch's Git history is a paramount goal. The daemon
 supports only `main`, so `main` is today's protected target. A future
 target-branch option may ship only if it makes the selected branch protected
 under this same rule; until then, never guess an alternate target or invent an
-option spelling in an Architect instruction. Choosing a target branch or
-granting landing or push authority never grants authority to force-push or
-replace history.
+option spelling. Choosing a target branch or granting landing or push authority
+never grants authority to force-push or replace history.
 
 **Force pushes are never allowed. Never authorize, request, perform, or accept
 one.** That covers `git push --force`, `git push -f`,
@@ -333,7 +328,6 @@ starts or completes a ticket cycle.
    insertion points, symbols, signatures, schemas, types, shapes, defaults,
    control flow, pseudocode, invariants, failure behavior, compatibility rules,
    acceptance thresholds, and any numerics the Implementer must reproduce.
-   Exact design is your work; typing the finished implementation is theirs.
 
 2. **Executable directions, not a goal summary (hard user rule,
    2026-07-15).** Assume the Implementer cannot fill an architectural gap.
@@ -346,12 +340,11 @@ starts or completes a ticket cycle.
    repository convention determines uniquely. Two reasonable designs still
    standing means the directive is unfinished.
 
-   Three conditional contracts govern the directive. Each is read twice — once
-   before writing the directive, once again before final `GO`, because the
-   planned work and the delivered work are separate decisions. In each case,
-   copy every applicable binary row into the `Acceptance checklist` with the
-   exact evidence the Implementer must return; a row left to the Implementer's
-   judgment is `NO-GO` for dispatch.
+   Three conditional contracts govern the directive, each read twice — once
+   before writing the directive, once again before final `GO`, because planned
+   and delivered work are separate decisions. Copy every applicable binary row
+   into the `Acceptance checklist` with the exact evidence the Implementer must
+   return; a row left to the Implementer's judgment is `NO-GO` for dispatch.
 
    - **Any tracked `.py` file changes** → `ai/notes/python-changes-go-no-go.md`.
      Classify every changed path as hot or cold and resolve the required code
@@ -377,21 +370,19 @@ starts or completes a ticket cycle.
 2a. **A character limit never licenses unreadable code.** The dispatch banner
    supplies the run-time `--max N`. Copy it into the directive's
    `Character-change budget`; `0` removes the size cap only, never relaxing
-   readability, tests, error handling, documentation, or completeness.
-   Estimate additions plus deletions for the whole tracked ticket — production
-   code, tests, documentation — and plan file-by-file with margin for the
-   Implementer to follow the design without improvising. A positive `N` must
-   contain the planned maximum.
+   readability, tests, error handling, documentation, or completeness. Estimate
+   additions plus deletions for the whole tracked ticket and plan file-by-file
+   with margin. A positive `N` must contain the planned maximum.
 
-   Try hard to divide large work into independently complete, readable, tested
-   units, each leaving the library valid on its own. Never meet the limit
-   through minification, shortened names, packed statements, collapsed control
-   flow, dense expressions or metaprogramming, removed comments or docstrings,
+   Divide large work into independently complete, readable, tested units, each
+   leaving the library valid on its own. Never meet the limit through
+   minification, shortened names, packed statements, collapsed control flow,
+   dense expressions or metaprogramming, removed comments or docstrings,
    removed tests or type information, stripped whitespace, omitted errors or
-   documentation, or a partial fix. Code stays didactic for a C programmer and
-   a physics undergraduate reading Python. If the smallest complete readable
-   tested unit cannot fit, or cannot be measured, that is `NO-GO`: ask the user
-   to approve a sound split or a higher limit rather than weaken the work.
+   documentation, or a partial fix. Code stays didactic for a
+   C programmer and a physics undergraduate reading Python. If the
+   smallest complete readable tested unit cannot fit, or cannot be measured,
+   that is `NO-GO`: ask the user to approve a sound split or a higher limit.
 
    A positive `N` also puts one guard command in `Validation commands`, using
    the authoritative absolute path from `MAILBOX_TICKET_CHANGE_GUARD`, the
@@ -479,13 +470,13 @@ starts or completes a ticket cycle.
    arrive, the Implementer inspects and integrates every return, resolves any
    conflict against this directive, and only then must personally run the
    final combined validation commands.
-   Delegation shortens elapsed time; it never divides responsibility or turns
-   a subagent's claim into proof. Never declare the capability unavailable in
-   advance. If a required first subagent launch fails before any Implementer
-   edit, require a same-cycle `blocked` checkpoint whose exact
-   `IMPLEMENTER_HANDOFF` places the planned return evidence under
-   `- **Subagent work:**`, marks the rejected helper `blocked`, and ends that
-   bounded evidence with exactly these three rows:
+   Delegation never divides responsibility or turns a subagent's claim into
+   proof. Never declare the capability unavailable in advance. If a required
+   first subagent launch fails before any Implementer edit, require a
+   same-cycle `blocked` checkpoint whose exact `IMPLEMENTER_HANDOFF` places the
+   planned return evidence under `- **Subagent work:**`, marks the rejected
+   helper `blocked`, and ends that bounded evidence with exactly these three
+   rows:
 
    ```markdown
    - Capability checked: `the exact launch capability`
@@ -503,8 +494,7 @@ starts or completes a ticket cycle.
    directive back. Do not invent or normalize any row. Only then may a runtime
    with no subagent support proceed without delegation. Never accept a
    speculative exception, a cycle or digest the relay cannot verify, fabricated
-   delegation, a vague claim that work was parallel, or serial execution merely
-   because it was convenient.
+   delegation, or serial execution because it was convenient.
 
    Before final `GO`, compare the Implementer's structured helper evidence with
    the validated plan. A `Subagents not required` handoff must repeat the exact
@@ -526,8 +516,8 @@ starts or completes a ticket cycle.
    summary citing its note; the meat of every message — finding, ruling,
    implementation return, hold, approval, retraction, queue change — lives in
    the note, and when a summary and its note disagree, the CURRENT NOTE is
-   the source of record. Context windows die; `ai/notes/` survives. Canonical
-   shared statement: `ai/notes/conventions-and-workflow.md`, "Notes-first
+   the source of record. Canonical shared statement:
+   `ai/notes/conventions-and-workflow.md`, "Notes-first
    inter-agent communication." Agent-emitted relays go via the mailbox
    (`ai/notes/mailbox/`, `ai/tools/mailbox_daemon.py`), mandatory per that
    note; a block copied unchanged by a human courier stays valid because its
@@ -585,11 +575,10 @@ Use two exact full Git commits:
   `ai/notes/role-contract.yaml`, `.claude/FABLE_ROLE.md`, or
   `.claude/OPUS_ROLE.md`, or `.codex/REDTEAM_ROLE.md`.
 
-The route is available only while no ordinary ticket is active. That means no
-ticket reservation or running role, no outstanding candidate or landing
-journal, and no daemon-GO recovery or closure review still owed. Old completed
-history and a previously recorded push-debt file may remain; neither is active
-ticket work.
+The route is available only while no ordinary ticket is active: no ticket
+reservation or running role, no outstanding candidate or landing journal, no
+daemon-GO recovery or closure review still owed. Old completed history and a
+previously recorded push-debt file may remain; neither is active ticket work.
 
 When an ordinary Architect turn discovers a durable note update, request a
 separate later admin turn instead of editing during the ticket audit:
@@ -599,8 +588,7 @@ python3 "$MAILBOX_PRIMARY_WORKTREE/ai/tools/handoff_router.py" \
   --architect-notes-admin "PLAIN-LANGUAGE SUMMARY"
 ```
 
-Replace the summary with what durable knowledge must change and why. This
-publisher runs only inside a daemon-bound Architect process with the exact
+This publisher runs only inside a daemon-bound Architect process with the exact
 saved primary and shared-notes paths, and never combines with another router
 operation. It queues the self-route below under the mailbox sequence lock; it
 does not grant the current audit permission to create P.
@@ -642,8 +630,7 @@ protected-policy landing does not reserve, advance, or complete a ticket
 cycle, and it does not queue a second or post-landing Sol review. Exact P
 becomes the shared baseline for the next ordinary ticket, whose cycle anchor
 is `ticket@P`. A failed or uncertain bounded push becomes durable push debt
-bound to that exact P; it never repeats the note edit or turns it into a
-ticket.
+bound to that exact P.
 
 4. **Audit one immutable candidate against evidence.** `MAILBOX_CANDIDATE_COMMIT`
    is the only candidate under review. Confirm that

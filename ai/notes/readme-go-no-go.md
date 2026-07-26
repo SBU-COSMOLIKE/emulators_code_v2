@@ -2,15 +2,11 @@
 
 ## Terms used by this contract
 
-A **unit** is one bounded change assigned to one development role. Git is the
-repository's version-control system; a **tracked** file is a file Git includes
-in saved repository versions. A **Python symbol** is one named module,
-function, class, or method.
-
-A **protocol token** is an exact machine-read word whose spelling is part of
-an interface. **Serialized data** is text or bytes written so a program can
-reconstruct structured state. A **test fixture** is the fixed input setup used
-by a check.
+A **unit** is one bounded change assigned to one development role. A **Python
+symbol** is one named module, function, class, or method. A **protocol token**
+is an exact machine-read word whose spelling is part of an interface.
+**Serialized data** is text or bytes written so a program can reconstruct
+structured state. A **test fixture** is the fixed input setup used by a check.
 
 A **directive** is the Architect's complete instruction for one unit. Its
 **Acceptance checklist** lists the checks and observations required for GO.
@@ -18,18 +14,11 @@ An **exemption** records why one check does not apply. **Dispatch** is the act
 of sending that directive to another role. A **gate** is a named validation
 job whose required result is written before it starts.
 
-YAML is the human-readable settings-file format used by the repository. A
-**parser** is a program that reads a format and rejects malformed input.
-**Mermaid** is the text format GitHub renders as a diagram. An **anchor** is a
-named location that a link can target. **Output parity** means that actual
-program output matches the declared reference under the stated comparison.
-
-**FAQ** means frequently asked question. An **HTML detail block** is a
-collapsible `<details>` section in Markdown. **Stale** text no longer matches
-the current library. A **full-source search** examines every file in its named
-scope rather than a shortened sample. A Git **branch** is a named line of saved
-repository versions. A **worktree** is a separate Git working folder attached
-to one branch.
+**Output parity** means actual program output matches the declared reference
+under the stated comparison. **Stale** text no longer matches the current
+library. A **full-source search** examines every file in its named scope
+rather than a shortened sample. **Mermaid** is the text format GitHub renders
+as a diagram; an **anchor** is a named location a link can target.
 
 This contract applies whenever a unit creates or changes either:
 
