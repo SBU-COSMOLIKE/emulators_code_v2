@@ -9,34 +9,15 @@ satisfied. A contradiction, missing proof, or undocumented exception is
 every Python change, read before the directive and again before accepting the
 result. This note is context; it never weakens that review.
 
-## Workflow words used throughout this note
+## Words with a local meaning
 
-**Watch**: one running mailbox command that repeatedly checks saved messages
-and starts the enabled roles. **Daemon**: the long-running watcher process.
-**Re-execute**: start the same command again from the saved agent folder with
-the original options.
+Ordinary Git, testing, and process vocabulary is assumed. These four are local:
 
-**Transport**: the mailbox files, locks, and logs carrying one role's saved
-message to another. **Bootstrap**: first creation and validation of the saved
-agent worktrees. A Git **worktree** is a separate working folder attached to
-one branch, so an agent edits without touching the user's checkout. A
-**branch** is one named line of saved Git versions. A **state record** is a
-small saved file holding the worktree path and branch. A **ticket** is one
-bounded work request controlled by one Architect source note. **Dispatch**
-sends a saved instruction to the next role. **Landing** places an accepted
-ticket commit on `main`.
-
-**Detached**: no branch selected. **Prunable**: Git reports the registered
-folder missing and eligible for removal. **Dirty**: uncommitted changes.
-**Ahead**: local commits not on `main`. **Diverged**: both branches have
-different commits after their last shared version.
-
-A **gate** is a named validation job whose required result is written before
-the job starts; the validation board records each gate and its command. A
-**fixture** is its fixed input setup. A **control** is a valid case that must
-pass. A **mutation** deliberately restores forbidden behavior and must fail.
-**Catch power** is a gate's demonstrated ability to fail for that mutation. A
-**compile lane** runs the same check through `torch.compile`.
+**Watch**: one running mailbox command that repeatedly checks saved messages and
+starts the enabled roles. **Ticket**: one bounded work request controlled by one
+Architect source note. **Landing**: putting an accepted ticket commit on `main`.
+**Catch power**: a gate's demonstrated ability to fail for the mutation that
+deliberately restores the behavior the gate forbids.
 
 ## Python house style
 
@@ -49,14 +30,12 @@ Applies to `emulator/`, public drivers, checks, and support scripts.
   positional interfaces positional — mathematical operands, plotting
   coordinates, `model(x)`, `*args` forwarding — and add a naming comment when
   a positional tensor is not obvious.
-- Explicit loops outside performance-critical code; keep vectorized NumPy or
-  Torch operations and loops inside compiled, forward, or batch hot paths. Find
-  comprehensions with an abstract syntax tree (AST), Python's parsed
-  representation of code structure; text search is not enough.
-- Direct, C-readable control flow. No nested comprehensions, no lambda where a
-  named function reads better, no walrus expressions, starred-argument tricks,
-  or stacked conditional expressions. One readable conditional expression is
-  acceptable.
+- Explicit loops outside performance-critical code; vectorized NumPy or Torch
+  operations stay inside compiled, forward, or batch hot paths. Find
+  comprehensions by AST; text search is not enough.
+- Direct, C-readable control flow: no nested comprehension, no lambda where a
+  named function reads better, no walrus, starred-argument trick, or stacked
+  conditional expression. One readable conditional expression is acceptable.
 - Never read mutable module-global data silently inside a function; pass it
   explicitly. A necessary exception carries
   `# WARNING: reads module global NAME` at the read site.
@@ -68,47 +47,44 @@ Applies to `emulator/`, public drivers, checks, and support scripts.
 - No spaced double dash as prose punctuation, including in command help,
   errors, logs, comments, and docstrings.
 
-The teaching notebook is a read-only style reference with a narrower line
-width; its formatting does not relax production rules.
+Teaching-notebook formatting, a read-only reference with narrower lines, never
+relaxes these rules.
 
 ## Explanatory Python prose
 
 Code teaches the current program; it never narrates a review history.
 
 - Module docstrings use complete sentences with a subject and verb.
-- Every public function and every nontrivial private function carries an
-  `Arguments:` block naming each argument and a `Returns:` block, plus a
-  `Raises:` block for meaningful refusals. For a dictionary argument,
-  enumerate accepted keys, shapes, units, and meanings.
-- A short private callback or test double may use one sentence when a formal
-  block would only repeat the signature.
-- Define a technical term at first use or replace it with plain language. A
-  short local glossary suits a file with several necessary terms.
+- Public function and nontrivial private function carries an `Arguments:` block
+  naming each argument and a `Returns:` block, plus a `Raises:` block for
+  meaningful refusals. For a dictionary argument, enumerate accepted keys,
+  shapes, units, and meanings.
+- Short private callback or test double: one sentence, when a formal block would
+  only repeat the signature.
+- Define a technical term at first use or replace it with plain language; a file
+  with several may carry a short local glossary.
 - Explain a cross-module call with a provenance comment when ownership is
   unclear: `# function_name (module.py): current purpose`.
 - Write mathematical relationships as formulas with every symbol defined.
   Tensor pipelines need a shape-flow diagram and a legend defining every
   dimension.
-- Derive constants from named symbols. A concrete Legacy Survey of Space and
-  Time first-year (LSST-Y1) example may follow the general derivation but
-  never replaces it.
+- Derive constants from named symbols. An LSST-Y1 example may follow the
+  general derivation but never replaces it.
 - Never state a list length, key count, or family count without checking the
   source of truth. A schema change requires a complete census for stale counts
   and enumerations.
 - Prove a documentation-only Python change by comparing ASTs with docstrings
   removed. Prose is not evidence of no executable change.
 
-Domain symbols must not collide with established cosmology notation: `h` is
-reserved for the dimensionless Hubble parameter `H0 / 100`, where `H0` is the
-Hubble constant in kilometers per second per megaparsec. Covariance
-finite-difference control is `step_frac` in Python and `s_step` in prose. This
-applies to code, formulas, logs, comments, notes, and handoffs.
+Domain symbols never collide with established cosmology notation: `h` is
+reserved for the dimensionless `H0 / 100`. The covariance finite-difference
+control is `step_frac` in Python and `s_step` in prose. This applies to code,
+formulas, logs, comments, notes, and handoffs.
 
-For covariance checks, a reasonable cosmology is the explicit Planck-Lambda
-cold dark matter (Planck-LCDM) fiducial in
-`example_yamls/cmb_covariance_lcdm.yaml`, or a scientifically justified nearby
-cosmology. An extreme synthetic case can prove a validator catches bad input
-but cannot alone prove a scientific result wrong.
+Covariance checks use the Planck-LCDM fiducial in
+`example_yamls/cmb_covariance_lcdm.yaml` or a justified nearby cosmology. An
+extreme synthetic case proves a validator catches bad input; it never alone
+proves a scientific result wrong.
 
 Runtime validation never depends on `assert`. Public configuration, data,
 shape, geometry, and numerical guards use explicit typed exceptions before
@@ -117,17 +93,16 @@ same negative fixtures with the same messages as ordinary Python. An internal
 invariant also uses an explicit exception when continuing could publish a
 scientific result.
 
-YAML is the repository's configuration-file format. Internal tracking
-abbreviations and review codes belong only in temporary working notes; public
-README files, Python prose, errors, logs, YAML comments, and check labels state
-the underlying fact. A permanent note may be cited by path. A repository-wide
-leak scan checks both coded forms and bare abbreviations and reads the complete
-output.
+Internal tracking abbreviations and review codes belong only in temporary
+working notes; public README files, Python prose, errors, logs, YAML comments,
+and check labels state the underlying fact. A permanent note may be cited by
+path. A repository-wide leak scan checks both coded forms and bare
+abbreviations and reads the complete output.
 
 ## Scope of scientific review
 
-Ordinary review covers scientific correctness, reproducibility, model and data
-identity, stale-test truth, numerical stability, and publication integrity.
+Review covers scientific correctness, reproducibility, model and data identity,
+stale-test truth, numerical stability, and publication integrity.
 Cybersecurity, hostile-user threat models, secrets, network attacks, and
 exploit hardening are out of scope unless explicitly requested or directly
 required to protect scientific results.
@@ -170,9 +145,8 @@ GitHub mathematics:
 - no whitespace-adjacent inline dollar delimiter; and
 - no code-name underscore inside math unless it is valid mathematical syntax.
 
-README acceptance includes a complete anchor census and a complete census of
-backticked repository paths: every link target resolves, every named path
-exists.
+README acceptance includes a complete anchor and backticked-path census: every
+link target resolves, every named path exists.
 
 ## Plots, terminal output, and YAML
 
@@ -239,7 +213,7 @@ includes:
 - failure behavior and forbidden alternatives;
 - named tests with expected observations;
 - exact validation commands;
-- stop conditions; and
+- stop conditions;
 - non-overlapping ownership when work is divided; and
 - the Architect's decision to require bounded subagents or explain why a
   separate helper would add no independent value.
@@ -252,14 +226,13 @@ Only the Architect decides whether subagents add independent value. When a
 ticket divides into an independent reproduction, implementation, test,
 documentation, or audit job, the Architect requires those bounded helpers; the
 Implementer integrates their work, reviews every changed file, and runs the
-final validation. When a separate helper would only repeat the same
-indivisible work or evidence, the Architect records that reason and the
-Implementer repeats it verbatim without creating or rewriting the waiver. Cost,
-convenience, or "small ticket" alone is not a sufficient reason.
+final validation. Otherwise the Architect records why a separate helper would
+repeat the same indivisible work or evidence, and the Implementer repeats that
+reason verbatim without creating or rewriting the waiver. Cost, convenience, or
+"small ticket" alone is not sufficient.
 
 `handoff_contract.py` rejects an informal sentence such as "use helpers where
-useful." The Architect chooses one of two visible forms. For a mailbox-parser
-ticket with independent work:
+useful." One of two visible forms is required. With independent work:
 
 ```markdown
 #### Subagents required
@@ -276,8 +249,8 @@ ticket with independent work:
 - Final validation: Run `python3 -m unittest ai.tests.test_handoff_contract` and require exit zero.
 ```
 
-For one parser branch whose edit and assertion cannot be divided without
-duplicating the same inspection:
+When one edit and its assertion cannot be divided without duplicating the
+same inspection:
 
 ```markdown
 #### Subagents not required
@@ -291,14 +264,13 @@ could still collide.
 
 A capability exception is never guessed in advance. If the Implementer attempts
 the named launch and the runtime rejects it before editing, it marks that
-helper `blocked` in the same-cycle `IMPLEMENTER_HANDOFF` and records the exact
-`Capability checked`, `Attempted operation`, and `Raw failure` values from the
-first rejected pre-edit launch as the final rows inside that handoff's
-`Subagent work` evidence. The relay records the full current cycle and SHA-256
-digest of that complete blocked handoff. The Architect copies those three
-digest-bound rows character-for-character into the replacement plan and copies
-both binding rows plus the same failure evidence under this required sibling
-block:
+helper `blocked` in the same-cycle `IMPLEMENTER_HANDOFF`, recording the exact
+`Capability checked`, `Attempted operation`, and `Raw failure` values from that
+first rejected pre-edit launch as the final rows of its `Subagent work`
+evidence. The relay records the full current cycle and SHA-256 digest of that
+complete blocked handoff. The Architect copies those three digest-bound rows
+character-for-character into the replacement plan, and both binding rows plus
+the same failure evidence under this required sibling block:
 
 ```markdown
 ### Prior Implementer subagent launch failure
@@ -313,12 +285,11 @@ block:
 
 The relay verifies both binding rows and all three copied failure values
 against the saved handoff before the revised plan can run. A missing,
-paraphrased, normalized, or invented value refuses the exception. The Architect
-revalidates and sends that revised same-cycle directive. A speculative or
-stale-cycle exception fails validation. A truthful `blocked` helper
-return may be used for this checkpoint, but unresolved blocked work cannot
-support final `GO`; every helper in the final ordinary plan must return
-`pass`.
+paraphrased, normalized, or invented value refuses the exception, as does a
+speculative or stale-cycle claim. The Architect revalidates and sends that
+revised same-cycle directive. A truthful `blocked` return serves this
+checkpoint only: unresolved blocked work never supports final `GO`, and every
+helper in the final ordinary plan must return `pass`.
 
 When enabled, Red Team reviews the named change and directly affected behavior.
 A repository-wide attack happens only when the Architect records an explicit
@@ -342,19 +313,16 @@ does not change the scope of a named-change review.
   breaks a central library workflow or systematically invalidates the library's
   scientific results.
 - **High**: severely damages core behavior, loses data, halts normal operation,
-  or makes a primary scientific result wrong. A primary result is the generated
-  training data, the trained emulator, the value served to a scientific caller,
-  or another central library output. A misleading plot, diagnostic ranking,
-  optional report, or supporting export is normally Medium.
+  or makes a primary scientific result wrong. Rules below.
 - **Medium**: High defects plus concrete defects reasonably likely in normal
   use. A merely theoretical or very improbable edge case does not qualify.
   Medium is the default.
 - **Low**: every concrete defect, including an improbable edge case.
 
 **Low — Edge Case** is not a discovery severity. It is the parked remainder of
-a bounded repair whose actionable failure is gone, used when complete coverage
-would add disproportionate complexity. No command-line severity selects it.
-Only an explicit user request naming that exact parked ticket activates it as
+a bounded repair whose actionable failure is gone and whose complete coverage
+would add disproportionate complexity. No command-line severity selects it;
+only an explicit user request naming that exact parked ticket activates it as
 ordinary Low work.
 
 Harm and likelihood are separate judgments. Red Team reports severity,
@@ -447,9 +415,9 @@ launcher re-executes the saved primary worktree's current daemon with the
 original arguments, interpreter, and working directory. The saved topology
 marker must also prove Sol has a dedicated worktree.
 
-Command-line interface (CLI) validation happens before worktree provisioning.
-Help, preview with no action, invalid combinations, and dry-run create no
-branch, worktree, state, or lock. Mailbox actions are `--watch`, `--once`, and
+CLI validation happens before worktree provisioning. Help, preview with no
+action, invalid combinations, and dry-run create no branch, worktree, state, or
+lock. Mailbox actions are `--watch`, `--once`, and
 `--send architect`. The separate `--ping` makes one small direct request to
 Claude and Sol without writing a mailbox file; `--ping --skip-redteam` checks
 Claude alone.
@@ -497,9 +465,7 @@ obligations, and acceptance conditions.
 Red Team is always advisory, including when its model is more capable than the
 Architect's or Implementer's. It finds defects and proposes evidence; it cannot
 decide a ticket, change the backlog, direct an Implementer, require a GO, delay
-an accepted local landing, or veto that landing. Its influence comes from
-reading the authorized code adversarially and explaining a real bug
-persuasively.
+an accepted local landing, or veto that landing.
 
 Every `Backlog action: NEW TICKET` or `Backlog action: REOPEN` return has one
 ignored temporary Markdown note at the stable repository-relative path
@@ -539,10 +505,7 @@ pressure; inflated severity; diary/date/wave narration; model-centered history;
 hidden uncertainty; fabricated commands, files, outputs, or observations. A
 finding never omits counterevidence because it weakens the argument.
 
-This detail transfers the completed investigation and conserves Architect
-tokens, which stay with prioritization, design, directives, audits, and backlog
-maintenance. It does not lower evidence standards or make the note
-authoritative.
+This transfer never lowers evidence standards or makes the note authoritative.
 
 Receipt and assessment happen at different times. On receipt the Architect does
 not reproduce or substantively analyze a `NEW TICKET` or `REOPEN` finding —
@@ -560,14 +523,12 @@ decide whether to plan a repair. A missing or weak section is recorded as
 evidence the Red Team must improve then; it never holds admission bookkeeping
 or an unrelated daemon-recorded landing open.
 
-A finding's proposed repair receives the same skepticism as its claim. Red Team
+A finding's proposed repair receives the same skepticism as its claim: Red Team
 reads for catch power, so its Repair directive can sketch more machinery than
-the demonstrated failure needs: a signing scheme where an exact-commit check
-already exists, a validation layer where one refusal suffices, a framework
-built around one bug. At assessment the Architect weighs the sketched repair
-against the proportional-repair rule in `python-changes-go-no-go.md`. When the
+the demonstrated failure needs. At assessment the Architect weighs it against
+the proportional-repair rule in `python-changes-go-no-go.md`. When the
 demonstrated harm supports only a narrow direct fix, plan that fix and discard
-the surplus. When no demonstrated failure supports the construction at all,
+the surplus; when no demonstrated failure supports the construction at all,
 close the ticket as not worth building and record the evidence. Catch power
 never obligates construction; severity never justifies machinery the failure
 does not need.
