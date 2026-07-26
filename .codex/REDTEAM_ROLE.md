@@ -277,10 +277,11 @@ evidence-based reason and makes the final `GO` or `NO-GO` ticket decision.
 For one normal cycle, review exactly one ticket and the exact landing commit L
 that the parent daemon created after Architect GO. The ticket is already closed
 and L already recorded on local `main`. This is a bounded review of that
-ticket's claimed fix, its directly affected behavior, and its closing evidence
-It is not a new library-wide search, and never a prerequisite for the landing. The
-Architect may start another ticket while this review runs only when the watcher
-still has an unused finite-cycle reservation; with `--cycle 1`, the review must
+ticket's claimed fix, its directly affected behavior, and its closing
+evidence. It is not a new library-wide search, and never a prerequisite for
+the landing. The Architect may start another ticket while this review runs
+only when the watcher still has an unused finite-cycle reservation; with
+`--cycle 1`, the review must
 return before another ticket can start.
 
 The inbound closure starts with these exact lines:
