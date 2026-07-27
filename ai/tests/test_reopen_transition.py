@@ -11,17 +11,18 @@ LANDING = "2" * 40
 
 
 def ticket_lines(*, state="CLOSED", severity="HIGH", count=0,
-                 reopening="allowed", following_heading=False):
+                 reopening="allowed", following_heading=False,
+                 title="Example ticket"):
     """Build one human-readable backlog ticket in Open or Closed position."""
     index = []
     if state == "OPEN":
         index = [
             "- OPEN **" + severity + "** **BUG FIX** — "
-            "[Example ticket](#" + ANCHOR + ")",
+            "[" + title + "](#" + ANCHOR + ")",
         ]
     detail = [
         '<a id="' + ANCHOR + '"></a>',
-        "## Example ticket",
+        "## " + title,
         "",
         "### High-level summary",
         "",
@@ -100,6 +101,23 @@ class ReopenTransitionTests(unittest.TestCase):
                 reopen_transition.ReopenTransitionError,
                 "exact GO or NO-GO"):
             reopen_transition.validate_after(before, wrong_severity)
+
+    def test_a_retitled_ticket_is_refused_as_a_changed_identity(self):
+        """The anchor alone does not establish that this is the same ticket.
+
+        An anchor is stable but short, and the title is the part a reader
+        recognizes. A decision that returns a different title under the same
+        anchor has answered about some other ticket, so the transition is
+        refused rather than recorded against this one.
+        """
+        before = reopen_transition.inspect_backlog(ticket_lines(), ANCHOR)
+        retitled = reopen_transition.inspect_backlog(
+            ticket_lines(state="OPEN", count=1, title="A different ticket"),
+            ANCHOR)
+        with self.assertRaisesRegex(
+                reopen_transition.ReopenTransitionError,
+                "changed the ticket identity"):
+            reopen_transition.validate_after(before, retitled)
 
     def test_no_go_closes_bars_and_increments_once(self):
         before = reopen_transition.inspect_backlog(ticket_lines(), ANCHOR)
