@@ -78,6 +78,82 @@ class TrackedBacklogLandingTests(unittest.TestCase):
                 git(default_sol(root), "rev-parse", "HEAD").stdout.strip(),
                 landing)
 
+    def test_a_journal_reference_that_kept_another_commit_is_refused(self):
+        """The landing is read back after it is published, not assumed.
+
+        ``update-ref`` can report success while the reference ends up naming
+        some other commit, for example when a concurrent process moves it
+        between the write and the read. The landing that later gets merged is
+        whatever the reference names, so a reference holding a different
+        commit must stop the cycle rather than be trusted.
+
+        The wrong readback cannot be produced by ordinary means, so the test
+        substitutes the daemon's own reference reader. Every reference other
+        than this cycle's journal is answered truthfully, and so is the
+        journal's first read, the crash-recovery probe taken before anything
+        is created. Only its second read, the one after publication, names a
+        different commit.
+        """
+        with scratch_repository() as root:
+            rc, output, error = invoke(root, ["--once"])
+            self.assertEqual(rc, 0, output + error)
+            primary = default_primary(root)
+            implementer = default_implementer(root)
+            daemon = load_scratch_daemon(primary)
+            daemon.ensure_primary_execution(live_action=True, dry_run=False)
+
+            base = git(implementer, "rev-parse", "HEAD").stdout.strip()
+            anchor = "landing-readback"
+            cycle = anchor + "@" + base
+            backlog = primary / "ai/notes/backlog.md"
+            backlog.write_text(
+                "- OPEN **HIGH** **BUG FIX** — [Landing readback](#"
+                + anchor + ")\n\n<a id=\"" + anchor + "\"></a>\n"
+                "**Red Team reopen count: 0.**\n"
+                "**Red Team reopening: allowed.**\n",
+                encoding="utf-8", newline="")
+            seal_backlog(primary)
+            daemon.register_ticket_cycle_message(
+                agent="opus",
+                message=("MAILBOX-FLOW: ticket\nMAILBOX-CYCLE: " + cycle
+                         + "\nMAILBOX-MODE: two-role\n\nFix it.\n"),
+                skip_redteam=True)
+            daemon.prepare_implementer_cycle_checkout(cycle_id=cycle)
+            changed = Path(implementer) / "accepted-fix.txt"
+            changed.write_text("fixed\n", encoding="utf-8")
+            git(implementer, "add", changed.name)
+            git(implementer, "commit", "-m", "Add the accepted fix")
+            candidate = daemon.record_implementer_candidate(
+                cycle_id=cycle, starting_head=base)
+
+            close_backlog_ticket(primary=primary, anchor=anchor)
+            sealed = backlog.read_bytes()
+
+            journal = daemon.cycle_landing_ref(cycle_id=cycle)
+            real_ref_commit = daemon.git_ref_commit
+            journal_reads = []
+
+            def one_wrong_readback(reference):
+                """Answer every reference truthfully but the journal reread."""
+                if reference != journal:
+                    return real_ref_commit(reference=reference)
+                journal_reads.append(reference)
+                if len(journal_reads) == 1:
+                    return real_ref_commit(reference=reference)
+                return "0" * 39 + "1"
+
+            daemon.git_ref_commit = one_wrong_readback
+            try:
+                with self.assertRaisesRegex(
+                        daemon.TicketCycleStateError,
+                        "did not preserve the created commit"):
+                    daemon.prepare_exact_squash_landing(
+                        cycle_id=cycle, candidate_commit=candidate,
+                        mode="two-role", sealed_backlog=sealed)
+            finally:
+                daemon.git_ref_commit = real_ref_commit
+            self.assertEqual(len(journal_reads), 2)
+
     def test_reopen_decision_gets_its_own_backlog_landing(self):
         with scratch_repository() as root:
             rc, output, error = invoke(root, ["--once"])
