@@ -232,6 +232,7 @@ redshift-by-wavenumber surface.
 | `test_generator_dark_energy_facts.py` | Does the generator recognize that sampled `w0pwa` and `w` make the calculated `wa` vary, then save the physical `w, wa` law? |
 | `test_generator_posterior_column.py` | Does the saved chain table store minus the log posterior in the column GetDist ranks by, and stay neutral when no posterior was evaluated? |
 | `test_grid2d_staging_row_contract.py` | Do in-memory and disk-backed Grid2D inputs select the same scientific rows in the same order? |
+| `test_layout_and_row_identity_refusals.py` | Does a selected row outside the dump, a row counted twice, a padded rectangle with no bins, a saved mask value that is neither zero nor one, or a blank failure flag stop the run instead of training on rows whose identity is not what the geometry claims? |
 | `test_parameter_table.py` | Are sampled and derived parameter columns selected by name instead of by a remembered column number? |
 | `test_mps_generator_dark_energy_binding.py` | Does every generated Syren base row reuse the explicit dark-energy law obtained once during setup? |
 | `test_syren_dark_energy_coordinates.py` | Do the several accepted names for the two dark-energy coordinates resolve to one consistent pair without silently replacing a missing evolution value with zero? |
