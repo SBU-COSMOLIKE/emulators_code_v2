@@ -580,17 +580,17 @@ A finished unit, ready for audit:
 
 - **Current state:** Added the redshift-grid check to
   `emulator/geometries/grid.py::validate_z_grid` and its refusal test in
-  `ai/tests/test_grid_geometry.py::test_unanchored_grid_refuses`. No other file
+  `ai/tests/test_background_grid_contract.py::test_unanchored_grid_refuses`. No other file
   changed.
 - **Candidate commit:** 7c1f0a93b6d24e5188aa03fe27bd415c9a6e0d72
 - **Gate results:**
 
   ```text
-  $ python3 -m unittest ai.tests.test_grid_geometry
-  Ran 14 tests in 0.31s
+  $ python3 -m unittest ai.tests.test_background_grid_contract
+  Ran 14 tests in 0.005s
   OK
-  $ python3 ai/gates/run_board.py --gate grid-geometry
-  grid-geometry: GREEN (3 legs)
+  $ python3 ai/gates/run_board.py --list
+    geo-paths                 not run   home: saved-emulators
   ```
 
 - **Character-change result:** added 1,884, deleted 216, total 2,100, limit
@@ -601,7 +601,7 @@ A finished unit, ready for audit:
 #### Subagent return `refusal-reproducer`
 - Returned artifact: the pre-edit failure output for an unanchored grid
 - Acceptance: `pass`
-- Evidence: `python3 -m unittest ai.tests.test_grid_geometry` before the edit
+- Evidence: `python3 -m unittest ai.tests.test_background_grid_contract` before the edit
   printed `AssertionError: ValueError not raised`, confirming the gap.
 
 - **Blockers/findings:** `validate_z_grid` and `check_z_monotonic` both walk
