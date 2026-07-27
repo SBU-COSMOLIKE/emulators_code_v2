@@ -275,7 +275,7 @@ adapter's scientific requirement.
 
 <a id="adapter-contracts-strict-inputs-and-composition"></a>
 
-#### Focused input and cosmic-shear composition evidence
+### Focused input and cosmic-shear composition evidence
 
 `adapter-contracts.strict-inputs-and-composition` checks the extra_args
 refusals below, then builds concrete cosmic-shear section plans: disjoint
@@ -283,7 +283,7 @@ sections must follow physical block order, and overlaps, incompatible layouts,
 repeated full vectors, and wrong widths must stop before becoming a likelihood
 vector.
 
-#### Adapter values, multi-emulator assembly, CMB requests
+### Adapter values, multi-emulator assembly, CMB requests
 
 **Rejected: a shared strict-value validator module.** Each adapter checks its
 own extra_args inline in a few direct lines. An unknown key is refused loudly,
