@@ -229,6 +229,7 @@ redshift-by-wavenumber surface.
 | `test_background_grid_contract.py` | Do training setup and the Cobaya adapter accept the same background quantities and physical units? |
 | `test_data_staging_paramnames.py` | Does each numeric parameter column receive the correct physical name before its data-vector row is opened? |
 | `test_failed_row_staging.py` | Are rows that the generator marked as failed removed before training rows are selected? |
+| `test_fixed_facts_pairing_laws.py` | Do two saved emulators refuse to be served together when they were sampled over different coordinates, sampled them in a different order, or describe different universes, and does an emulator refuse a support kind it cannot compare a point against? |
 | `test_generator_dark_energy_facts.py` | Does the generator recognize that sampled `w0pwa` and `w` make the calculated `wa` vary, then save the physical `w, wa` law? |
 | `test_generator_posterior_column.py` | Does the saved chain table store minus the log posterior in the column GetDist ranks by, and stay neutral when no posterior was evaluated? |
 | `test_grid2d_staging_row_contract.py` | Do in-memory and disk-backed Grid2D inputs select the same scientific rows in the same order? |
