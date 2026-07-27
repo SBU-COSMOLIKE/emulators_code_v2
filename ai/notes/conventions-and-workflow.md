@@ -171,8 +171,8 @@ choice, a widespread search, corrections, and changed scope all go there.
 The Architect decides which enabled role acts next and writes the complete
 downstream instruction. The Implementer and Red Team do not accept direct user
 substance; a direct request reaching either is returned to the Architect as a
-blocker. A human may copy a generated handoff unchanged. That is transport, not a
-new user instruction.
+blocker. A human may copy a generated handoff unchanged. That is transport, not
+a new user instruction.
 
 The default topology is Architect, Implementer, and Red Team. A watch may omit
 Red Team with `--skip-redteam` or `--no-red-team`, which never weakens
@@ -454,11 +454,11 @@ registered worktrees.
 
 ## Notes-first communication and mailbox transport
 
-The substantive record for a ticket is the Architect's **source note**, a
-local file under `ai/notes/` written before the handoff. It contains scope, scientific
-evidence, counterexample, design contract, exact file and symbol targets,
-changed files, branch or commit identity, raw-test locations, remaining
-obligations, and acceptance conditions.
+The substantive record for a ticket is the Architect's **source note**, a local
+file under `ai/notes/` written before the handoff. It contains scope,
+scientific evidence, counterexample, design contract, exact file and symbol
+targets, changed files, branch or commit identity, raw-test locations,
+remaining obligations, and acceptance conditions.
 
 ### Red Team finding note GO / NO-GO
 
@@ -608,9 +608,9 @@ different defect must use `Backlog action: NEW TICKET`. A prohibited later
 
 Ordinary acceptance: the Architect assigns a ticket, the Implementer repairs
 it, the Architect audits, and Architect `GO` authorizes the parent daemon to
-create and verify one local landing immediately. Red Team does not supply a required
-`GO`, and the Architect never waits for Red Team before authorizing an accepted
-fix.
+create and verify one local landing immediately. Red Team does not supply a
+required `GO`, and the Architect never waits for Red Team before authorizing an
+accepted fix.
 
 A cycle follows one ticket through Architect/Implementer exchanges, Architect
 GO, one daemon-created landing, and one Red Team review of that exact landing.
@@ -626,8 +626,8 @@ evaluates evidence, final priority, and GO/NO-GO later.
 `backlog.md` is tracked at `ai/notes/backlog.md`, so a clean clone already
 holds the current Open and Closed tickets. If missing, restore the version from
 `main`; never invent a shorter private format. A backlog received through the
-bundle tool is still input to review, not an automatic replacement. Recreate it with
-this exact opening and heading order:
+bundle tool is still input to review, not an automatic replacement. Recreate it
+with this exact opening and heading order:
 
 ```markdown
 # Execution backlog
@@ -790,9 +790,9 @@ See further instructions at ai/notes/<plain-ticket-slug>-red-team-finding.md
 The Architect writes a feature's user-supplied priority and any "after the
 backlog is closed" prerequisite into `Current status`. A High bug's reason
 explains why Medium is insufficient; a Critical bug's also explains why High is
-insufficient. These rules apply to every tracked backlog; imported older records are brought
-into this shape when first touched rather than copied as an incompatible
-private format.
+insufficient. These rules apply to every tracked backlog; imported older
+records are brought into this shape when first touched rather than copied as an
+incompatible private format.
 
 `ai/README.md` carries a fully worked ticket showing the required level of
 explanation: `Saved CMB progress can lose its multipole labels`. It is an
@@ -816,9 +816,10 @@ linked open ticket.
 As the final step of each normal cycle, Red Team reviews the one ticket and
 daemon-recorded landing L from that cycle. A no-finding result is advisory. If
 the bug remains and reopening is still allowed, the handoff says
-`Backlog action: REOPEN`, the same cycle stays active while the Architect assesses that
-evidence, and the Architect increments the reopen count and cites the stable
-finding note with its exact `See further instructions at ...` line. GO restores
+`Backlog action: REOPEN`, the same cycle stays active while the Architect
+assesses that evidence, and the Architect increments the reopen count and
+cites the stable finding note with its exact
+`See further instructions at ...` line. GO restores
 the complete ticket to Open at the same severity; NO-GO keeps it Closed,
 records why, and permanently bars that objection. Only after this decision may
 the cycle complete.
