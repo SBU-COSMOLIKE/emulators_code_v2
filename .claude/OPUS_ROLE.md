@@ -579,9 +579,9 @@ A finished unit, ready for audit:
 ### IMPLEMENTER_HANDOFF: REQUESTING REVIEW
 
 - **Current state:** Added the redshift-grid check to
-  `emulator/geometries/grid.py::validate_z_grid` and its refusal test in
-  `ai/tests/test_background_grid_contract.py::test_unanchored_grid_refuses`. No other file
-  changed.
+  `emulator/geometries/grid.py::GridGeometry.from_targets` and its refusal test in
+  `ai/tests/test_background_grid_contract.py::test_distance_math_refuses_a_hubble_grid_without_the_zero_anchor`.
+  No other file changed.
 - **Candidate commit:** 7c1f0a93b6d24e5188aa03fe27bd415c9a6e0d72
 - **Gate results:**
 
@@ -604,8 +604,9 @@ A finished unit, ready for audit:
 - Evidence: `python3 -m unittest ai.tests.test_background_grid_contract` before the edit
   printed `AssertionError: ValueError not raised`, confirming the gap.
 
-- **Blockers/findings:** `validate_z_grid` and `check_z_monotonic` both walk
-  the grid; the Architect may want one ticket to merge them. Not touched here.
+- **Blockers/findings:** `from_targets` and
+  `validate_background_quantity_units` both walk the grid; the Architect may
+  want one ticket to merge those walks. Not touched here.
 - **Notes entry updated:** ai/notes/grid-anchor-refusal.md — resume state
   appended
 - **Action required:** sign-off
@@ -618,7 +619,7 @@ A blocker, when the directive is not decision-complete. `Candidate commit` is
 ### IMPLEMENTER_HANDOFF: BLOCKED
 
 - **Current state:** No file edited. The directive check printed `VALID`, but
-  `Interfaces and exact behavior` does not say what `validate_z_grid` raises
+  `Interfaces and exact behavior` does not say what `from_targets` raises
   when the grid is empty, and `Tests to write` names a test for that case.
 - **Candidate commit:** none
 - **Gate results:** not run; no edit was made.
