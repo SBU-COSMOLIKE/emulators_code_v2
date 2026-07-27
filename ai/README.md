@@ -1497,7 +1497,7 @@ flowchart TD
 
 Messages ending in `-to-user.md` are replies for a person to read. The watcher
 never starts an AI role from those files. The separate
-[`--ping` connection check](tools/README.md#check-whether-claude-and-sol-can-answer)
+[`--ping` connection check](tools/README.md#check-whether-the-selected-ai-services-can-answer)
 contacts the configured services directly and creates no mailbox message.
 Implementer and Red Team ticket results return internally to the Architect
 instead of starting a separate user conversation.
