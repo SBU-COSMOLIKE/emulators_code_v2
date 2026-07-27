@@ -480,6 +480,141 @@ class ArtifactRecipePreflightTests(unittest.TestCase):
           results._validate_saved_recipe_geometry_widths(
             recipe, parameter, output, "factored fixture")
 
+  def _factored_artifact(self, artifact, amp_idx, n_param=4, names=None):
+    """Write one factored parameter geometry with the given amplitude map.
+
+    Arguments:
+      artifact = the open h5py file to write the groups into.
+      amp_idx  = the amplitude column indices to save.
+      n_param  = the saved parameter count.
+      names    = the parameter names, or None for p0..p3 with a1 second.
+
+    Returns:
+      ``(parameter_group, output_group)`` ready for the width check.
+    """
+    if names is None:
+      names = ["p0", "a1", "p2", "p3"]
+    parameter = artifact.create_group("param_geometry")
+    parameter.attrs["cls"] = (
+      "emulator.geometries.parameter.AmplitudeFactorGeometry")
+    parameter.attrs["n_param"] = n_param
+    parameter.create_dataset(
+      "names", data=np.asarray(names, dtype=object),
+      dtype=h5py.string_dtype(encoding="utf-8"))
+    parameter.create_dataset(
+      "amp_idx", data=np.asarray(amp_idx, dtype=np.int64))
+    kept_width = n_param - len(amp_idx)
+    kept = parameter.create_group("pg_keep")
+    kept.create_dataset(
+      "names",
+      data=np.asarray(["k%d" % i for i in range(kept_width)], dtype=object),
+      dtype=h5py.string_dtype(encoding="utf-8"))
+    kept.create_dataset("center", data=np.zeros(kept_width))
+    kept.create_dataset("sqrt_ev", data=np.ones(kept_width))
+    kept.create_dataset("evecs", data=np.eye(kept_width))
+    output = artifact.create_group("dv_geometry")
+    output.attrs["cls"] = "emulator.geometries.scalar.ScalarGeometry"
+    output.create_dataset(
+      "names", data=np.asarray(["derived"], dtype=object),
+      dtype=h5py.string_dtype(encoding="utf-8"))
+    output.create_dataset("center", data=np.zeros(1))
+    output.create_dataset("scale", data=np.ones(1))
+    return parameter, output
+
+  def _factored_recipe(self, input_dim=4, n_amps=1):
+    """Return a factored model recipe naming the given widths."""
+    return {
+      "cls": "emulator.designs.ia.TemplateMLP",
+      "name": "resmlp", "ia": "nla",
+      "input_dim": input_dim, "output_dim": 1,
+      "compile_mode": None, "needs_geom": False,
+      "kwargs": {
+        "n_amps": n_amps, "n_templates": 3,
+        "int_dim_res": 4, "n_blocks": 1,
+        "block_opts": {
+          "n_layers": 2,
+          "act": {"type": "H", "n_gates": 3},
+          "norm": "affine"},
+      },
+    }
+
+  def test_repeated_amplitude_column_is_refused(self):
+    """One parameter listed twice would be factored as two amplitudes.
+
+    The saved map says which parameter columns carry amplitudes. A repeat
+    passes the count check, because two entries are still two entries, and
+    leaves the rebuilt model factoring one physical parameter twice while
+    another is never treated as an amplitude at all.
+    """
+    with tempfile.TemporaryDirectory(prefix="recipe-amp-repeat-") as temp:
+      with h5py.File(Path(temp) / "repeat.h5", "w") as artifact:
+        parameter, output = self._factored_artifact(
+          artifact, amp_idx=[1, 1])
+        with self.assertRaisesRegex(ValueError, "duplicate columns"):
+          results._validate_saved_recipe_geometry_widths(
+            self._factored_recipe(n_amps=2), parameter, output,
+            "repeat fixture")
+
+  def test_amplitude_column_outside_the_parameter_range_is_refused(self):
+    """An index past the last parameter names a column that does not exist."""
+    with tempfile.TemporaryDirectory(prefix="recipe-amp-range-") as temp:
+      with h5py.File(Path(temp) / "range.h5", "w") as artifact:
+        parameter, output = self._factored_artifact(
+          artifact, amp_idx=[4])
+        with self.assertRaisesRegex(ValueError, "outside"):
+          results._validate_saved_recipe_geometry_widths(
+            self._factored_recipe(), parameter, output, "range fixture")
+
+  def test_factored_input_width_must_equal_the_saved_parameter_count(self):
+    """A recipe input width that disagrees with the geometry is refused."""
+    with tempfile.TemporaryDirectory(prefix="recipe-amp-width-") as temp:
+      with h5py.File(Path(temp) / "width.h5", "w") as artifact:
+        parameter, output = self._factored_artifact(
+          artifact, amp_idx=[1])
+        with self.assertRaisesRegex(ValueError, "disagrees with"):
+          results._validate_saved_recipe_geometry_widths(
+            self._factored_recipe(input_dim=5), parameter, output,
+            "width fixture")
+
+  def test_grid2d_axis_product_must_equal_the_recipe_output_width(self):
+    """The saved z and k axes decide how many values the grid holds.
+
+    A recipe whose output width is not z*k describes a different surface
+    from the one the axes describe, so the pair cannot be rebuilt.
+    """
+    with tempfile.TemporaryDirectory(prefix="recipe-grid2d-") as temp:
+      with h5py.File(Path(temp) / "grid2d.h5", "w") as artifact:
+        parameter = artifact.create_group("param_geometry")
+        parameter.attrs["cls"] = (
+          "emulator.geometries.parameter.ParamGeometry")
+        parameter.create_dataset(
+          "names", data=np.asarray(["p0", "p1"], dtype=object),
+          dtype=h5py.string_dtype(encoding="utf-8"))
+        parameter.create_dataset("center", data=np.zeros(2))
+        parameter.create_dataset("sqrt_ev", data=np.ones(2))
+        parameter.create_dataset("evecs", data=np.eye(2))
+        output = artifact.create_group("dv_geometry")
+        output.attrs["cls"] = (
+          "emulator.geometries.grid2d.Grid2DGeometry")
+        output.create_dataset("z", data=np.linspace(0.0, 1.0, 3))
+        output.create_dataset("k", data=np.linspace(0.1, 1.0, 4))
+        output.create_dataset("center", data=np.zeros(12))
+        output.create_dataset("scale", data=np.ones(12))
+        output.create_dataset(
+          "const_mask", data=np.zeros(12, dtype=np.uint8))
+        recipe = {
+          "cls": "emulator.designs.plain.ResMLP",
+          "name": "resmlp", "input_dim": 2, "output_dim": 11,
+          "compile_mode": None, "needs_geom": False,
+          "kwargs": {"int_dim_res": 4, "n_blocks": 1,
+                     "block_opts": {"n_layers": 2,
+                                    "act": {"type": "H", "n_gates": 3},
+                                    "norm": "affine"}},
+        }
+        with self.assertRaisesRegex(ValueError, "z\\*k width 3\\*4=12"):
+          results._validate_saved_recipe_geometry_widths(
+            recipe, parameter, output, "grid2d fixture")
+
   def test_inert_width_check_binds_log_parameter_mask(self):
     """The saved log mask has one entry for every encoded input column."""
     with tempfile.TemporaryDirectory(prefix="recipe-log-input-") as temp:
