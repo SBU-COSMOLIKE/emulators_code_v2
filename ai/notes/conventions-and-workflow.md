@@ -331,15 +331,15 @@ downgrades with a reason and alone decides whether the finding becomes a
 ticket.
 
 High is deliberately difficult to assign, bar below Critical. Red Team and
-Architect must name
-the damaged primary calculation, training data, served result, data-loss
-boundary, or core operation, plus why Medium is not enough. "Wrong science"
-alone does not satisfy that comparison. Harm ending in a plot, diagnostic,
-ranking, or optional analysis product is Medium unless separate evidence shows
-the same defect changes a primary result or stops a core workflow. Urgency, a missing test, unfinished cleanup, an expensive validation run, or a
-desire to work sooner is not by itself High evidence. A missing comparison is NO-GO and defaults to
-Medium until evidence supports an upgrade. Severity never selects a role or
-changes the number of Implementers.
+Architect must name the damaged primary calculation, training data, served
+result, data-loss boundary, or core operation, plus why Medium is not enough.
+"Wrong science" alone does not satisfy that comparison. Harm ending in a plot,
+diagnostic, ranking, or optional analysis product is Medium unless separate
+evidence shows the same defect changes a primary result or stops a core
+workflow. Urgency, a missing test, unfinished cleanup, an expensive validation
+run, or a desire to work sooner is not by itself High evidence. A missing
+comparison is NO-GO and defaults to Medium until evidence supports an upgrade.
+Severity never selects a role or changes the number of Implementers.
 
 The Critical bar is far above High. High, urgent, scientific, hard to fix,
 limited to one important family or platform, or lacking a convenient workaround
@@ -542,16 +542,17 @@ or moves it between sections.
 
 Contents list order: **Open tickets**, **Parked edge cases**, **Closed
 tickets**. The open index contains
-exactly one linked `- OPEN` line for each actionable unfinished ticket, because
-the watcher counts that marker. Parked edge cases
-use `- PARKED`, never enter that count, and are never selected automatically.
+exactly one linked `- OPEN` line for each actionable unfinished ticket,
+because the watcher counts that marker. Parked edge cases use `- PARKED`,
+never enter that count, and are
+never selected automatically.
 
 The Architect classifies every admitted ticket Critical, High, Medium, or Low
-by the harm and likelihood rules above. The linked index shows that classification and is
-grouped in priority order: Critical first, High second, Medium third, and Low
-last. Work starts with the first
-dispatchable ticket in the highest nonempty group. A blocked ticket stays in
-its severity group with its blocker while work moves on. Every severity change
+by the harm and likelihood rules above. The linked index shows that
+classification and is grouped in priority order: Critical first, High second,
+Medium third, and Low last. Work starts with the first dispatchable ticket in
+the highest nonempty group. A blocked ticket stays in its severity group with
+its blocker while work moves on. Every severity change
 records the new evidence and the reason.
 
 Every admitted ticket records one type, **Bug fix** or **New functionality**.
@@ -580,9 +581,10 @@ Within one permitted group, preserve index order unless a recorded blocker or
 prerequisite requires moving on.
 
 Every ticket also keeps an integer named **Red Team reopen count**. It starts
-at `0` and never resets. It records how many Red Team reviews in the final step of a normal cycle said
-`REOPEN`. That return keeps the same cycle active until the Architect assesses
-the evidence. Before that reasoning the trusted reopening checker prints the
+at `0` and never resets. It records how many Red Team reviews in the final step
+of a normal cycle said `REOPEN`. That return keeps the same cycle active until
+the Architect assesses the evidence. Before that reasoning the trusted
+reopening checker prints the
 exact ticket, landing, severity, count, and legal outcomes; after the backlog
 is sealed it proves the counter changed once and the selected state is exact.
 It never judges the finding or edits the backlog. The Architect records one
@@ -593,9 +595,9 @@ The Architect has the final word before the cycle ends. Above a count of `1`,
 compare the new evidence with the ticket's earlier reopening reports and grow
 stricter with each attempt: did Red Team find a materially new failure, or
 repeat an old objection without new evidence? The Architect may close the
-ticket again or lower its priority with a recorded reason. When the count becomes `6`, or is already greater than `5`, priority is
-automatically Low. No role may waive that, even
-for a ticket that was Critical or High.
+ticket again or lower its priority with a recorded reason. When the count
+becomes `6`, or is already greater than `5`, priority is automatically Low. No
+role may waive that, even for a ticket that was Critical or High.
 
 Every ticket has one exact reopening state, beginning `allowed`. Architect GO
 on a reopening accepts the evidence and leaves the ticket open for repair;
@@ -803,11 +805,12 @@ detailed section below `# Closed tickets`, changes `**OPEN.**` to
 for this ticket.` Title, anchor, type, final priority, reopen count, reopening
 state, human summary, completed work, and technical evidence remain. The
 Architect then emits the exact decision-only `architect-go` request for the
-audited candidate C without waiting for Red Team. After that Architect process exits, the daemon creates and verifies distinct
-landing L, fast-forwards a clean unchanged user `main`, and records any remote
-push debt. The Architect does not merge,
-commit, update a Git reference, target the user's checkout, or push. If any
-required action remains, the ticket stays open or that action receives its own
+audited candidate C without waiting for Red Team. After that Architect process
+exits, the daemon creates and verifies distinct landing L, fast-forwards a
+clean unchanged user `main`, and records any remote push debt. The Architect
+does not merge, commit, update a Git reference, target the user's checkout, or
+push. If any required action remains, the ticket stays open or that action
+receives its own
 linked open ticket.
 
 As the final step of each normal cycle, Red Team reviews the one ticket and
@@ -932,8 +935,8 @@ TICKET` return, a new or cleared blocker. The ticket stays OPEN until
 implementation, required evidence, Architect review, and any required
 permanent-note update are complete. Architect acceptance closes and
 seals the backlog ticket, then emits the exact GO request without waiting for
-Red Team or landing L. The daemon then creates and records L; a later advisory review may reopen
-the ticket.
+Red Team or landing L. The daemon then creates and records L; a later advisory
+review may reopen the ticket.
 
 The Architect note has one current `## Implementation directive`; a confirmed
 Red Team return has one current `## Repair directive`. The appropriate contract
