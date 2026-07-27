@@ -674,6 +674,7 @@ files belong together and constructing the model needed for new predictions.
 
 | File | Question answered |
 | --- | --- |
+| `test_architect_go_candidate_binding.py` | Does an Architect GO authorize landing only the exact candidate commit, cycle, and mode it names, refusing a GO written for a different commit, a stale message from before this turn, and two fresh decisions at once? |
 | `test_artifact_recipe_preflight.py` | Does saving stop before reading model weights when the model recipe is incomplete or the five history arrays have incompatible shapes? When reopening, does a damaged reconstruction input—such as the model recipe, saved geometry, or composition record—stop before saved Python classes or checkpoint tensors are used? The same test proves that removing the optional history group does not prevent reconstruction. |
 | `test_model_recipe.py` | Does a model recipe name every constructor choice needed to rebuild the six supported model designs, without silently supplying a current software default? |
 | `test_artifact_transfer_state_contract.py` | Does a transfer artifact store its base weights without duplicate state hashes, and does ordinary strict model loading refuse missing, extra, or wrong-shaped tensors? |
